@@ -7,6 +7,11 @@ type SendTextInput = {
   text: string;
 };
 
+type SendTextAttempt = {
+  path: string;
+  body: Record<string, unknown>;
+};
+
 type StartInstanceInput = {
   instanceId: string;
   token: string;
@@ -34,6 +39,55 @@ type AuthSessionInput = {
 };
 
 export class WhatsappService {
+  private buildSendTextAttempts(input: SendTextInput): SendTextAttempt[] {
+    return [
+      {
+        path: `/api/v1/auth/instances/${encodeURIComponent(input.instanceId)}/send-code`,
+        body: {
+          phoneNumber: input.number,
+          message: input.text
+        }
+      },
+      {
+        path: `/api/v1/instances/${encodeURIComponent(input.instanceId)}/send-code`,
+        body: {
+          phoneNumber: input.number,
+          message: input.text
+        }
+      },
+      {
+        path: "/message/sendText",
+        body: {
+          instanceId: input.instanceId,
+          number: input.number,
+          text: input.text
+        }
+      },
+      {
+        path: "/api/v1/message/sendText",
+        body: {
+          instanceId: input.instanceId,
+          number: input.number,
+          text: input.text
+        }
+      },
+      {
+        path: `/api/v1/instances/${encodeURIComponent(input.instanceId)}/messages/text`,
+        body: {
+          number: input.number,
+          text: input.text
+        }
+      },
+      {
+        path: `/api/v1/instances/${encodeURIComponent(input.instanceId)}/messages/send-text`,
+        body: {
+          number: input.number,
+          text: input.text
+        }
+      }
+    ];
+  }
+
   private buildAuthHeaders(token: string): Record<string, string> {
     return {
       Authorization: `Bearer ${token}`,
@@ -94,20 +148,29 @@ export class WhatsappService {
   }
 
   async sendText(input: SendTextInput): Promise<void> {
-    const response = await fetch(`${env.WHATSAPP_CONNECT_BASE_URL}/message/sendText`, {
-      method: "POST",
-      headers: this.buildHeaders(input.token),
-      body: JSON.stringify({
-        instanceId: input.instanceId,
-        number: input.number,
-        text: input.text
-      })
-    });
+    const attempts = this.buildSendTextAttempts(input);
+    const errors: string[] = [];
 
-    if (!response.ok) {
+    for (const attempt of attempts) {
+      const response = await fetch(`${env.WHATSAPP_CONNECT_BASE_URL}${attempt.path}`, {
+        method: "POST",
+        headers: this.buildHeaders(input.token),
+        body: JSON.stringify(attempt.body)
+      });
+
+      if (response.ok) {
+        return;
+      }
+
       const errorText = await response.text();
-      throw new Error(`WhatsApp Connect error (${response.status}): ${errorText}`);
+      errors.push(`${attempt.path} -> (${response.status}) ${errorText}`);
+
+      if (response.status !== 404 && response.status !== 405) {
+        throw new Error(`WhatsApp Connect error on ${attempt.path} (${response.status}): ${errorText}`);
+      }
     }
+
+    throw new Error(`WhatsApp Connect sendText failed across known endpoints: ${errors.join(" | ")}`);
   }
 
   async createInstanceV1(token: string, input: CreateInstanceV1Input): Promise<CreateInstanceV1Result> {

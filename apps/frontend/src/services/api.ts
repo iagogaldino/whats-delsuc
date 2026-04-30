@@ -19,6 +19,32 @@ export type PublicInstance = {
   updatedAt: string;
 };
 
+export type BulkJobItem = {
+  number: string;
+  status: "PENDING" | "SENT" | "FAILED";
+  error?: string;
+  sentAt?: string;
+  updatedAt: string;
+};
+
+export type BulkJob = {
+  id: string;
+  instanceId: string;
+  message: string;
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "COMPLETED_WITH_ERRORS" | "FAILED";
+  total: number;
+  sentCount: number;
+  failedCount: number;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  items: BulkJobItem[];
+};
+
+/** Registro salvo no servidor (histórico); sem lista de destinatários — use `getBulkJob(id)` para detalhe. */
+export type BulkJobSummary = Omit<BulkJob, "items">;
+
 async function readErrorMessage(response: Response): Promise<string> {
   const text = await response.text();
   try {
@@ -39,6 +65,15 @@ function getAuthHeaders() {
     headers.set("Authorization", `Bearer ${token}`);
   }
   return headers;
+}
+
+function authHeadersAsObject(): Record<string, string> {
+  const headers = getAuthHeaders();
+  const result: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
 }
 
 export function getAccessToken(): string | null {
@@ -91,7 +126,7 @@ export async function listInstances(): Promise<PublicInstance[]> {
   const response = await fetch(`${API_BASE_URL}/instances`, {
     method: "GET",
     headers: {
-      ...Object.fromEntries(getAuthHeaders().entries())
+      ...authHeadersAsObject()
     }
   });
 
@@ -107,7 +142,7 @@ export async function createInstance(input?: { name?: string }): Promise<PublicI
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...Object.fromEntries(getAuthHeaders().entries())
+      ...authHeadersAsObject()
     },
     body: JSON.stringify(input ?? {})
   });
@@ -126,7 +161,7 @@ export async function startInstance(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...Object.fromEntries(getAuthHeaders().entries())
+      ...authHeadersAsObject()
     },
     body: JSON.stringify({})
   });
@@ -143,19 +178,67 @@ export async function updatePrompt(instanceId: string, systemPrompt: string): Pr
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
-      ...Object.fromEntries(getAuthHeaders().entries())
+      ...authHeadersAsObject()
     },
     body: JSON.stringify({ systemPrompt })
   });
 }
 
-export async function sendBulk(instanceId: string, numbers: string[], message: string): Promise<void> {
-  await fetch(`${API_BASE_URL}/bulk/send`, {
+export async function sendBulk(instanceId: string, numbers: string[], message: string): Promise<BulkJob> {
+  const response = await fetch(`${API_BASE_URL}/bulk/send`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...Object.fromEntries(getAuthHeaders().entries())
+      ...authHeadersAsObject()
     },
     body: JSON.stringify({ instanceId, numbers, message })
   });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return response.json() as Promise<BulkJob>;
+}
+
+export async function listBulkJobs(params?: {
+  limit?: number;
+  instanceId?: string;
+}): Promise<BulkJobSummary[]> {
+  const search = new URLSearchParams();
+  if (params?.limit !== undefined) {
+    search.set("limit", String(params.limit));
+  }
+  if (params?.instanceId) {
+    search.set("instanceId", params.instanceId);
+  }
+  const query = search.toString();
+  const response = await fetch(`${API_BASE_URL}/bulk/jobs${query ? `?${query}` : ""}`, {
+    method: "GET",
+    headers: {
+      ...authHeadersAsObject()
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  const payload = (await response.json()) as { items: BulkJobSummary[] };
+  return payload.items;
+}
+
+export async function getBulkJob(jobId: string): Promise<BulkJob> {
+  const response = await fetch(`${API_BASE_URL}/bulk/jobs/${jobId}`, {
+    method: "GET",
+    headers: {
+      ...authHeadersAsObject()
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return response.json() as Promise<BulkJob>;
 }
