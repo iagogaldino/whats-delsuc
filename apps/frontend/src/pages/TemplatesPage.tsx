@@ -3,6 +3,7 @@ import { SectionCard } from "../components/SectionCard";
 import {
   createMessageTemplate,
   deleteMessageTemplate,
+  getTemplateMediaObjectUrl,
   listMessageTemplates,
   updateMessageTemplate,
   type MessageTemplate
@@ -15,7 +16,10 @@ export function TemplatesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState("");
   const [contentInput, setContentInput] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedImagePreviewUrl, setSelectedImagePreviewUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
 
   async function loadTemplates() {
     setLoading(true);
@@ -34,6 +38,82 @@ export function TemplatesPage() {
     void loadTemplates();
   }, []);
 
+  useEffect(() => {
+    const imageTemplates = templates.filter((item) => item.media?.mimeType.startsWith("image/"));
+    if (imageTemplates.length === 0) {
+      setPreviewUrls((previous) => {
+        Object.values(previous).forEach((url) => URL.revokeObjectURL(url));
+        return {};
+      });
+      return;
+    }
+
+    let disposed = false;
+    void Promise.all(
+      imageTemplates.map(async (template) => {
+        try {
+          const objectUrl = await getTemplateMediaObjectUrl(template.id);
+          return { id: template.id, objectUrl };
+        } catch {
+          return { id: template.id, objectUrl: "" };
+        }
+      })
+    ).then((entries) => {
+      if (disposed) {
+        entries.forEach((entry) => {
+          if (entry.objectUrl) {
+            URL.revokeObjectURL(entry.objectUrl);
+          }
+        });
+        return;
+      }
+      setPreviewUrls((previous) => {
+        Object.values(previous).forEach((url) => URL.revokeObjectURL(url));
+        const next: Record<string, string> = {};
+        entries.forEach((entry) => {
+          if (entry.objectUrl) {
+            next[entry.id] = entry.objectUrl;
+          }
+        });
+        return next;
+      });
+    });
+
+    return () => {
+      disposed = true;
+    };
+  }, [templates]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(previewUrls).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [previewUrls]);
+
+  useEffect(() => {
+    if (!selectedFile || !selectedFile.type.startsWith("image/")) {
+      setSelectedImagePreviewUrl((previous) => {
+        if (previous) {
+          URL.revokeObjectURL(previous);
+        }
+        return null;
+      });
+      return;
+    }
+
+    const nextUrl = URL.createObjectURL(selectedFile);
+    setSelectedImagePreviewUrl((previous) => {
+      if (previous) {
+        URL.revokeObjectURL(previous);
+      }
+      return nextUrl;
+    });
+
+    return () => {
+      URL.revokeObjectURL(nextUrl);
+    };
+  }, [selectedFile]);
+
   const detectedPlaceholders = useMemo(() => {
     const matches = contentInput.match(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g) ?? [];
     return Array.from(new Set(matches.map((item) => item.replace(/[{}\s]/g, "").toLowerCase())));
@@ -51,11 +131,17 @@ export function TemplatesPage() {
           if (!nameInput.trim() || !contentInput.trim()) {
             return;
           }
+          if (selectedFile && selectedFile.size > 16 * 1024 * 1024) {
+            setError("Arquivo acima do limite de 16MB.");
+            return;
+          }
 
           setSaving(true);
+          setError(null);
           const payload = {
             name: nameInput.trim(),
-            content: contentInput.trim()
+            content: contentInput.trim(),
+            file: selectedFile ?? undefined
           };
 
           const action = editingId
@@ -66,6 +152,7 @@ export function TemplatesPage() {
             .then(() => {
               setNameInput("");
               setContentInput("");
+              setSelectedFile(null);
               setEditingId(null);
               return loadTemplates();
             })
@@ -85,6 +172,28 @@ export function TemplatesPage() {
           value={contentInput}
           onChange={(event) => setContentInput(event.target.value)}
         />
+        <div className="space-y-2 rounded-lg border border-slate-700/80 bg-slate-950/40 p-3">
+          <p className="text-xs text-slate-400">Opcional: anexe arquivo ao template (max 16MB).</p>
+          <input
+            type="file"
+            className="block w-full text-xs text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-slate-200 hover:file:bg-slate-600"
+            onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+          />
+          {selectedFile ? (
+            <div className="space-y-2">
+              <p className="text-xs text-slate-400">
+                Arquivo selecionado: {selectedFile.name} ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
+              </p>
+              {selectedImagePreviewUrl ? (
+                <img
+                  src={selectedImagePreviewUrl}
+                  alt={`Preview ${selectedFile.name}`}
+                  className="max-h-52 rounded-md border border-slate-700 object-contain"
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         {detectedPlaceholders.length > 0 ? (
           <p className="text-xs text-slate-400">Placeholders detectados: {detectedPlaceholders.join(", ")}</p>
         ) : null}
@@ -104,6 +213,7 @@ export function TemplatesPage() {
                 setEditingId(null);
                 setNameInput("");
                 setContentInput("");
+                setSelectedFile(null);
               }}
             >
               Cancelar
@@ -125,6 +235,20 @@ export function TemplatesPage() {
               <div className="min-w-0">
                 <p className="font-medium text-slate-100">{template.name}</p>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-slate-300">{template.content}</p>
+                {template.media ? (
+                  <div className="mt-2 space-y-2">
+                    <p className="text-xs text-slate-400">
+                      Arquivo: {template.media.fileName} ({(template.media.sizeBytes / (1024 * 1024)).toFixed(2)} MB)
+                    </p>
+                    {template.media.mimeType.startsWith("image/") && previewUrls[template.id] ? (
+                      <img
+                        src={previewUrls[template.id]}
+                        alt={`Preview ${template.media.fileName}`}
+                        className="max-h-48 rounded-md border border-slate-700 object-contain"
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
                 {template.placeholders.length > 0 ? (
                   <p className="mt-2 text-xs text-slate-400">Placeholders: {template.placeholders.join(", ")}</p>
                 ) : null}
@@ -137,6 +261,7 @@ export function TemplatesPage() {
                     setEditingId(template.id);
                     setNameInput(template.name);
                     setContentInput(template.content);
+                    setSelectedFile(null);
                   }}
                 >
                   Editar

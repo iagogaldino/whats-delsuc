@@ -29,6 +29,11 @@ export type MessageTemplate = {
   id: string;
   name: string;
   content: string;
+  media?: {
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+  };
   placeholders: string[];
   createdAt: string;
   updatedAt: string;
@@ -46,6 +51,9 @@ export type BulkJob = {
   id: string;
   instanceId: string;
   message: string;
+  deliveryType: "TEXT" | "MEDIA";
+  mediaFileName?: string;
+  mediaCaption?: string;
   status: "QUEUED" | "PROCESSING" | "COMPLETED" | "COMPLETED_WITH_ERRORS" | "FAILED";
   total: number;
   sentCount: number;
@@ -54,6 +62,11 @@ export type BulkJob = {
   updatedAt: string;
   startedAt?: string;
   finishedAt?: string;
+  scheduledAt?: string;
+  timezone?: "BRT";
+  cancelledAt?: string;
+  scheduleUpdatedAt?: string;
+  scheduleStatus?: "SCHEDULED" | "RUNNING" | "EXECUTED" | "CANCELLED";
   items: BulkJobItem[];
 };
 
@@ -244,14 +257,26 @@ export async function listMessageTemplates(): Promise<MessageTemplate[]> {
 export async function createMessageTemplate(input: {
   name: string;
   content: string;
+  file?: File;
 }): Promise<MessageTemplate> {
+  const hasFile = Boolean(input.file);
+  const headers = getAuthHeaders();
+  let body: BodyInit;
+  if (hasFile) {
+    const formData = new FormData();
+    formData.append("name", input.name);
+    formData.append("content", input.content);
+    formData.append("file", input.file as File);
+    body = formData;
+  } else {
+    headers.set("Content-Type", "application/json");
+    body = JSON.stringify(input);
+  }
+
   const response = await fetch(`${API_BASE_URL}/message-templates`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeadersAsObject()
-    },
-    body: JSON.stringify(input)
+    headers,
+    body
   });
 
   if (!response.ok) {
@@ -263,15 +288,26 @@ export async function createMessageTemplate(input: {
 
 export async function updateMessageTemplate(
   templateId: string,
-  input: { name: string; content: string }
+  input: { name: string; content: string; file?: File }
 ): Promise<MessageTemplate> {
+  const hasFile = Boolean(input.file);
+  const headers = getAuthHeaders();
+  let body: BodyInit;
+  if (hasFile) {
+    const formData = new FormData();
+    formData.append("name", input.name);
+    formData.append("content", input.content);
+    formData.append("file", input.file as File);
+    body = formData;
+  } else {
+    headers.set("Content-Type", "application/json");
+    body = JSON.stringify({ name: input.name, content: input.content });
+  }
+
   const response = await fetch(`${API_BASE_URL}/message-templates/${templateId}`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeadersAsObject()
-    },
-    body: JSON.stringify(input)
+    headers,
+    body
   });
 
   if (!response.ok) {
@@ -279,6 +315,28 @@ export async function updateMessageTemplate(
   }
 
   return response.json() as Promise<MessageTemplate>;
+}
+
+export function getTemplateMediaUrl(templateId: string): string {
+  return `${API_BASE_URL}/message-templates/${templateId}/media`;
+}
+
+export async function getTemplateMediaBlob(templateId: string): Promise<Blob> {
+  const response = await fetch(getTemplateMediaUrl(templateId), {
+    method: "GET",
+    headers: {
+      ...authHeadersAsObject()
+    }
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  return response.blob();
+}
+
+export async function getTemplateMediaObjectUrl(templateId: string): Promise<string> {
+  const blob = await getTemplateMediaBlob(templateId);
+  return URL.createObjectURL(blob);
 }
 
 export async function deleteMessageTemplate(templateId: string): Promise<void> {
@@ -294,14 +352,42 @@ export async function deleteMessageTemplate(templateId: string): Promise<void> {
   }
 }
 
-export async function sendBulk(instanceId: string, numbers: string[], message: string): Promise<BulkJob> {
+export async function sendBulk(input: {
+  instanceId: string;
+  numbers: string[];
+  message?: string;
+  caption?: string;
+  file?: File;
+}): Promise<BulkJob> {
+  const hasFile = Boolean(input.file);
+  const headers = getAuthHeaders();
+  let body: BodyInit;
+
+  if (hasFile) {
+    const formData = new FormData();
+    formData.append("instanceId", input.instanceId);
+    formData.append("numbers", JSON.stringify(input.numbers));
+    if (input.message && input.message.trim().length > 0) {
+      formData.append("message", input.message.trim());
+    }
+    if (input.caption && input.caption.trim().length > 0) {
+      formData.append("caption", input.caption.trim());
+    }
+    formData.append("file", input.file as File);
+    body = formData;
+  } else {
+    headers.set("Content-Type", "application/json");
+    body = JSON.stringify({
+      instanceId: input.instanceId,
+      numbers: input.numbers,
+      message: input.message ?? ""
+    });
+  }
+
   const response = await fetch(`${API_BASE_URL}/bulk/send`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeadersAsObject()
-    },
-    body: JSON.stringify({ instanceId, numbers, message })
+    headers,
+    body
   });
 
   if (!response.ok) {
@@ -350,5 +436,99 @@ export async function getBulkJob(jobId: string): Promise<BulkJob> {
     throw new Error(await readErrorMessage(response));
   }
 
+  return response.json() as Promise<BulkJob>;
+}
+
+export async function createBulkSchedule(input: {
+  instanceId: string;
+  numbers: string[];
+  message?: string;
+  caption?: string;
+  file?: File;
+  scheduledAt: string;
+}): Promise<BulkJob> {
+  const hasFile = Boolean(input.file);
+  const headers = getAuthHeaders();
+  let body: BodyInit;
+
+  if (hasFile) {
+    const formData = new FormData();
+    formData.append("instanceId", input.instanceId);
+    formData.append("numbers", JSON.stringify(input.numbers));
+    formData.append("scheduledAt", input.scheduledAt);
+    if (input.message && input.message.trim().length > 0) {
+      formData.append("message", input.message.trim());
+    }
+    if (input.caption && input.caption.trim().length > 0) {
+      formData.append("caption", input.caption.trim());
+    }
+    formData.append("file", input.file as File);
+    body = formData;
+  } else {
+    headers.set("Content-Type", "application/json");
+    body = JSON.stringify({
+      instanceId: input.instanceId,
+      numbers: input.numbers,
+      message: input.message ?? "",
+      caption: input.caption ?? "",
+      scheduledAt: input.scheduledAt
+    });
+  }
+
+  const response = await fetch(`${API_BASE_URL}/bulk/schedules`, {
+    method: "POST",
+    headers,
+    body
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  return response.json() as Promise<BulkJob>;
+}
+
+export async function listBulkSchedules(params?: { limit?: number }): Promise<BulkJobSummary[]> {
+  const search = new URLSearchParams();
+  if (params?.limit !== undefined) {
+    search.set("limit", String(params.limit));
+  }
+  const query = search.toString();
+  const response = await fetch(`${API_BASE_URL}/bulk/schedules${query ? `?${query}` : ""}`, {
+    method: "GET",
+    headers: {
+      ...authHeadersAsObject()
+    }
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  const payload = (await response.json()) as { items: BulkJobSummary[] };
+  return payload.items;
+}
+
+export async function updateBulkSchedule(jobId: string, scheduledAt: string): Promise<BulkJob> {
+  const response = await fetch(`${API_BASE_URL}/bulk/schedules/${jobId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeadersAsObject()
+    },
+    body: JSON.stringify({ scheduledAt })
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  return response.json() as Promise<BulkJob>;
+}
+
+export async function cancelBulkSchedule(jobId: string): Promise<BulkJob> {
+  const response = await fetch(`${API_BASE_URL}/bulk/schedules/${jobId}`, {
+    method: "DELETE",
+    headers: {
+      ...authHeadersAsObject()
+    }
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
   return response.json() as Promise<BulkJob>;
 }

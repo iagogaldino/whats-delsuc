@@ -8,12 +8,30 @@ export type BulkJobStatus =
   | "COMPLETED"
   | "COMPLETED_WITH_ERRORS"
   | "FAILED";
+export type BulkScheduleStatus = "SCHEDULED" | "RUNNING" | "EXECUTED" | "CANCELLED";
 
 type CreateBulkJobInput = {
   userId: string;
   instanceId: string;
   message: string;
   numbers: string[];
+  deliveryType?: "TEXT" | "MEDIA";
+  mediaFileName?: string;
+  mediaCaption?: string;
+  mediaStoragePath?: string;
+};
+
+type CreateScheduledBulkJobInput = {
+  userId: string;
+  instanceId: string;
+  message: string;
+  numbers: string[];
+  deliveryType?: "TEXT" | "MEDIA";
+  mediaFileName?: string;
+  mediaCaption?: string;
+  mediaStoragePath?: string;
+  scheduledAt: Date;
+  timezone: "BRT";
 };
 
 type BulkMessageItemDocument = {
@@ -29,6 +47,10 @@ type BulkJobDocument = {
   userId: string;
   instanceId: string;
   message: string;
+  deliveryType?: "TEXT" | "MEDIA";
+  mediaFileName?: string;
+  mediaCaption?: string;
+  mediaStoragePath?: string;
   status: BulkJobStatus;
   total: number;
   sentCount: number;
@@ -38,6 +60,11 @@ type BulkJobDocument = {
   updatedAt: Date;
   startedAt?: Date;
   finishedAt?: Date;
+  scheduledAt?: Date;
+  timezone?: "BRT";
+  cancelledAt?: Date;
+  scheduleUpdatedAt?: Date;
+  scheduleStatus?: BulkScheduleStatus;
 };
 
 export type BulkMessageItemModel = {
@@ -53,6 +80,10 @@ export type BulkJobModel = {
   userId: string;
   instanceId: string;
   message: string;
+  deliveryType: "TEXT" | "MEDIA";
+  mediaFileName?: string;
+  mediaCaption?: string;
+  mediaStoragePath?: string;
   status: BulkJobStatus;
   total: number;
   sentCount: number;
@@ -62,6 +93,11 @@ export type BulkJobModel = {
   updatedAt: Date;
   startedAt?: Date;
   finishedAt?: Date;
+  scheduledAt?: Date;
+  timezone?: "BRT";
+  cancelledAt?: Date;
+  scheduleUpdatedAt?: Date;
+  scheduleStatus?: BulkScheduleStatus;
 };
 
 /** Job row without per-number items (lighter list/history responses). */
@@ -81,6 +117,10 @@ export class BulkJobRepository {
       userId: input.userId,
       instanceId: input.instanceId,
       message: input.message,
+      deliveryType: input.deliveryType ?? "TEXT",
+      mediaFileName: input.mediaFileName,
+      mediaCaption: input.mediaCaption,
+      mediaStoragePath: input.mediaStoragePath,
       status: "QUEUED",
       total: input.numbers.length,
       sentCount: 0,
@@ -93,6 +133,44 @@ export class BulkJobRepository {
     const created = await collection.findOne({ _id: result.insertedId });
     if (!created) {
       throw new Error("Failed to create bulk job.");
+    }
+
+    return mapBulkJobDocument(created);
+  }
+
+  async createScheduled(input: CreateScheduledBulkJobInput): Promise<BulkJobModel> {
+    const now = new Date();
+    const items: BulkMessageItemDocument[] = input.numbers.map((number) => ({
+      number,
+      status: "PENDING",
+      updatedAt: now
+    }));
+
+    const collection = getMongoDb().collection<BulkJobDocument>("bulk_jobs");
+    const result = await collection.insertOne({
+      userId: input.userId,
+      instanceId: input.instanceId,
+      message: input.message,
+      deliveryType: input.deliveryType ?? "TEXT",
+      mediaFileName: input.mediaFileName,
+      mediaCaption: input.mediaCaption,
+      mediaStoragePath: input.mediaStoragePath,
+      status: "QUEUED",
+      total: input.numbers.length,
+      sentCount: 0,
+      failedCount: 0,
+      items,
+      createdAt: now,
+      updatedAt: now,
+      scheduledAt: input.scheduledAt,
+      timezone: input.timezone,
+      scheduleUpdatedAt: now,
+      scheduleStatus: "SCHEDULED"
+    });
+
+    const created = await collection.findOne({ _id: result.insertedId });
+    if (!created) {
+      throw new Error("Failed to create scheduled bulk job.");
     }
 
     return mapBulkJobDocument(created);
@@ -130,6 +208,107 @@ export class BulkJobRepository {
       .findOne({ _id: objectId, userId });
 
     return document ? mapBulkJobDocument(document) : null;
+  }
+
+  async listScheduledByUserId(userId: string, options: { limit: number }): Promise<BulkJobSummaryModel[]> {
+    const limit = Math.min(Math.max(options.limit, 1), 100);
+    const documents = await getMongoDb()
+      .collection<BulkJobDocument>("bulk_jobs")
+      .find({ userId, scheduledAt: { $exists: true } })
+      .project<BulkJobDocument>({ items: 0 })
+      .sort({ scheduledAt: 1, createdAt: -1 })
+      .limit(limit)
+      .toArray();
+
+    return documents.map((document) => mapBulkJobSummary(document));
+  }
+
+  async findDueScheduledJobs(now: Date, limit: number): Promise<BulkJobModel[]> {
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const documents = await getMongoDb()
+      .collection<BulkJobDocument>("bulk_jobs")
+      .find({
+        scheduleStatus: "SCHEDULED",
+        scheduledAt: { $lte: now }
+      })
+      .sort({ scheduledAt: 1 })
+      .limit(safeLimit)
+      .toArray();
+
+    return documents.map((document) => mapBulkJobDocument(document));
+  }
+
+  async claimScheduledJob(jobId: string): Promise<boolean> {
+    const objectId = toObjectId(jobId);
+    if (!objectId) {
+      return false;
+    }
+    const now = new Date();
+    const result = await getMongoDb()
+      .collection<BulkJobDocument>("bulk_jobs")
+      .updateOne(
+        { _id: objectId, scheduleStatus: "SCHEDULED" },
+        { $set: { scheduleStatus: "RUNNING", scheduleUpdatedAt: now, updatedAt: now } }
+      );
+    return result.modifiedCount === 1;
+  }
+
+  async markScheduleExecuted(jobId: string): Promise<void> {
+    const objectId = toObjectId(jobId);
+    if (!objectId) {
+      return;
+    }
+    const now = new Date();
+    await getMongoDb()
+      .collection<BulkJobDocument>("bulk_jobs")
+      .updateOne(
+        { _id: objectId },
+        { $set: { scheduleStatus: "EXECUTED", scheduleUpdatedAt: now, updatedAt: now } }
+      );
+  }
+
+  async updateScheduleTime(
+    jobId: string,
+    userId: string,
+    scheduledAt: Date,
+    timezone: "BRT"
+  ): Promise<BulkJobModel | null> {
+    const objectId = toObjectId(jobId);
+    if (!objectId) {
+      return null;
+    }
+    const now = new Date();
+    const result = await getMongoDb()
+      .collection<BulkJobDocument>("bulk_jobs")
+      .findOneAndUpdate(
+        { _id: objectId, userId, scheduleStatus: "SCHEDULED" },
+        { $set: { scheduledAt, timezone, scheduleUpdatedAt: now, updatedAt: now } },
+        { returnDocument: "after" }
+      );
+    return result ? mapBulkJobDocument(result) : null;
+  }
+
+  async cancelScheduled(jobId: string, userId: string): Promise<BulkJobModel | null> {
+    const objectId = toObjectId(jobId);
+    if (!objectId) {
+      return null;
+    }
+    const now = new Date();
+    const result = await getMongoDb()
+      .collection<BulkJobDocument>("bulk_jobs")
+      .findOneAndUpdate(
+        { _id: objectId, userId, scheduleStatus: "SCHEDULED" },
+        {
+          $set: {
+            scheduleStatus: "CANCELLED",
+            cancelledAt: now,
+            scheduleUpdatedAt: now,
+            updatedAt: now
+          }
+        },
+        { returnDocument: "after" }
+      );
+    return result ? mapBulkJobDocument(result) : null;
   }
 
   async markProcessing(jobId: string): Promise<void> {
@@ -238,6 +417,10 @@ function mapBulkJobSummary(document: BulkJobDocument): BulkJobSummaryModel {
     userId: document.userId,
     instanceId: document.instanceId,
     message: document.message,
+    deliveryType: document.deliveryType ?? "TEXT",
+    mediaFileName: document.mediaFileName,
+    mediaCaption: document.mediaCaption,
+    mediaStoragePath: document.mediaStoragePath,
     status: document.status,
     total: document.total,
     sentCount: document.sentCount,
@@ -245,7 +428,12 @@ function mapBulkJobSummary(document: BulkJobDocument): BulkJobSummaryModel {
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
     startedAt: document.startedAt,
-    finishedAt: document.finishedAt
+    finishedAt: document.finishedAt,
+    scheduledAt: document.scheduledAt,
+    timezone: document.timezone,
+    cancelledAt: document.cancelledAt,
+    scheduleUpdatedAt: document.scheduleUpdatedAt,
+    scheduleStatus: document.scheduleStatus
   };
 }
 
@@ -259,6 +447,10 @@ function mapBulkJobDocument(document: BulkJobDocument): BulkJobModel {
     userId: document.userId,
     instanceId: document.instanceId,
     message: document.message,
+    deliveryType: document.deliveryType ?? "TEXT",
+    mediaFileName: document.mediaFileName,
+    mediaCaption: document.mediaCaption,
+    mediaStoragePath: document.mediaStoragePath,
     status: document.status,
     total: document.total,
     sentCount: document.sentCount,
@@ -273,6 +465,11 @@ function mapBulkJobDocument(document: BulkJobDocument): BulkJobModel {
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
     startedAt: document.startedAt,
-    finishedAt: document.finishedAt
+    finishedAt: document.finishedAt,
+    scheduledAt: document.scheduledAt,
+    timezone: document.timezone,
+    cancelledAt: document.cancelledAt,
+    scheduleUpdatedAt: document.scheduleUpdatedAt,
+    scheduleStatus: document.scheduleStatus
   };
 }

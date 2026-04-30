@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { env } from "../lib/env.js";
 
 type SendTextInput = {
@@ -10,6 +11,15 @@ type SendTextInput = {
 type SendTextAttempt = {
   path: string;
   body: Record<string, unknown>;
+};
+
+type SendMediaInput = {
+  instanceId: string;
+  token: string;
+  number: string;
+  filePath: string;
+  fileName: string;
+  caption?: string;
 };
 
 type StartInstanceInput = {
@@ -178,6 +188,30 @@ export class WhatsappService {
     }
 
     throw new Error(`WhatsApp Connect sendText failed across known endpoints: ${errors.join(" | ")}`);
+  }
+
+  async sendMedia(input: SendMediaInput): Promise<void> {
+    const buffer = await readFile(input.filePath);
+    const formData = new FormData();
+    formData.append("phoneNumber", input.number);
+    if (input.caption && input.caption.trim().length > 0) {
+      formData.append("caption", input.caption.trim());
+    }
+    formData.append("file", new Blob([buffer]), input.fileName);
+
+    const response = await fetch(
+      `${env.WHATSAPP_CONNECT_BASE_URL}/api/v1/auth/instances/${encodeURIComponent(input.instanceId)}/send-media`,
+      {
+        method: "POST",
+        headers: this.buildAuthHeaders(input.token),
+        body: formData
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`WhatsApp media send failed (${response.status}): ${errorText}`);
+    }
   }
 
   async createInstanceV1(token: string, input: CreateInstanceV1Input): Promise<CreateInstanceV1Result> {

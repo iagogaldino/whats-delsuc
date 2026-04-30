@@ -5,6 +5,12 @@ type CreateTemplateInput = {
   userId: string;
   name: string;
   content: string;
+  media?: {
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    dataBase64: string;
+  };
 };
 
 type UpdateTemplateInput = {
@@ -12,6 +18,12 @@ type UpdateTemplateInput = {
   userId: string;
   name: string;
   content: string;
+  media?: {
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    dataBase64: string;
+  };
 };
 
 const PLACEHOLDER_REGEX = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
@@ -47,6 +59,7 @@ export class MessageTemplateRepository {
         userId: input.userId,
         name: input.name,
         content: input.content,
+        media: input.media,
         placeholders,
         createdAt: now,
         updatedAt: now
@@ -77,6 +90,7 @@ export class MessageTemplateRepository {
           $set: {
             name: input.name,
             content: input.content,
+            media: input.media,
             placeholders,
             updatedAt: new Date()
           }
@@ -117,6 +131,12 @@ type MessageTemplateDocument = {
   userId: string;
   name: string;
   content: string;
+  media?: {
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    dataBase64: string;
+  };
   placeholders: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -126,6 +146,12 @@ type MessageTemplateInsertDocument = {
   userId: string;
   name: string;
   content: string;
+  media?: {
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    dataBase64: string;
+  };
   placeholders: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -136,6 +162,12 @@ export type MessageTemplateModel = {
   userId: string;
   name: string;
   content: string;
+  media?: {
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    dataBase64: string;
+  };
   placeholders: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -151,6 +183,7 @@ function mapTemplateDocument(document: MessageTemplateDocument): MessageTemplate
     userId: document.userId,
     name: document.name,
     content: document.content,
+    media: document.media,
     placeholders: document.placeholders ?? [],
     createdAt: document.createdAt,
     updatedAt: document.updatedAt

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { SectionCard } from "../components/SectionCard";
 import { useSubmitState } from "../hooks/useSubmitState";
-import { listMessageTemplates, updateInstanceAutoReply } from "../services/api";
+import { getTemplateMediaObjectUrl, listMessageTemplates, updateInstanceAutoReply } from "../services/api";
 import type { MessageTemplate, PublicInstance } from "../services/api";
 
 type PromptEditorPageProps = {
@@ -22,6 +22,7 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
     (instance?.autoReplyAllowedNumbers ?? []).join("\n")
   );
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [templateImagePreviewUrl, setTemplateImagePreviewUrl] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const { loading, message, withSubmit } = useSubmitState();
 
@@ -32,6 +33,54 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
         setTemplates([]);
       });
   }, []);
+
+  useEffect(() => {
+    const selected = templates.find((item) => item.id === fixedReplyTemplateId);
+    if (!selected?.media?.mimeType.startsWith("image/")) {
+      setTemplateImagePreviewUrl((previous) => {
+        if (previous) {
+          URL.revokeObjectURL(previous);
+        }
+        return null;
+      });
+      return;
+    }
+
+    let disposed = false;
+    void getTemplateMediaObjectUrl(selected.id)
+      .then((objectUrl) => {
+        if (disposed) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setTemplateImagePreviewUrl((previous) => {
+          if (previous) {
+            URL.revokeObjectURL(previous);
+          }
+          return objectUrl;
+        });
+      })
+      .catch(() => {
+        setTemplateImagePreviewUrl((previous) => {
+          if (previous) {
+            URL.revokeObjectURL(previous);
+          }
+          return null;
+        });
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [fixedReplyTemplateId, templates]);
+
+  useEffect(() => {
+    return () => {
+      if (templateImagePreviewUrl) {
+        URL.revokeObjectURL(templateImagePreviewUrl);
+      }
+    };
+  }, [templateImagePreviewUrl]);
 
   return (
     <SectionCard
@@ -140,6 +189,16 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
                 ))}
               </select>
             </label>
+            {templateImagePreviewUrl ? (
+              <div className="space-y-1 rounded-lg border border-slate-700/80 bg-slate-950/40 p-3">
+                <p className="text-xs text-slate-400">Preview da imagem do template</p>
+                <img
+                  src={templateImagePreviewUrl}
+                  alt="Preview da imagem do template"
+                  className="max-h-56 rounded-md border border-slate-700 object-contain"
+                />
+              </div>
+            ) : null}
             <textarea
               className="min-h-44 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
               value={fixedReplyMessage}

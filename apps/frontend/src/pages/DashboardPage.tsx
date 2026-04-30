@@ -265,7 +265,7 @@ export function DashboardPage({ onOpenInstance }: DashboardPageProps) {
                     {instance.displayName || "Instancia sem nome"}
                   </p>
                   <p className="mt-1 text-xs uppercase tracking-wide text-slate-400">
-                    Status: {instance.status}
+                    {instance.status}
                   </p>
                 </div>
                 {instance.status !== "CONNECTED" ? (

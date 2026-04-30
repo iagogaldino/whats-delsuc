@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import { BulkJobRepository } from "../repositories/bulk-job.repository.js";
 import { InstanceRepository } from "../repositories/instance.repository.js";
 import { WhatsappService } from "./whatsapp.service.js";
@@ -5,6 +6,9 @@ import { WhatsappService } from "./whatsapp.service.js";
 type StartBulkJobInput = {
   jobId: string;
   userId: string;
+  mediaTempFilePath?: string;
+  mediaFileName?: string;
+  mediaCaption?: string;
 };
 
 const bulkJobRepository = new BulkJobRepository();
@@ -47,18 +51,38 @@ export class BulkJobService {
       return;
     }
 
-    for (const item of job.items) {
-      try {
-        await whatsappService.sendText({
-          instanceId: instance.instanceId,
-          token: instance.token,
-          number: item.number,
-          text: job.message
-        });
-        await bulkJobRepository.markItemSent(job.id, item.number);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to send message.";
-        await bulkJobRepository.markItemFailed(job.id, item.number, message);
+    try {
+      for (const item of job.items) {
+        try {
+          if (job.deliveryType === "MEDIA") {
+            if (!input.mediaTempFilePath || !input.mediaFileName) {
+              throw new Error("Media file not available for this job.");
+            }
+            await whatsappService.sendMedia({
+              instanceId: instance.instanceId,
+              token: instance.token,
+              number: item.number,
+              caption: input.mediaCaption ?? job.mediaCaption,
+              filePath: input.mediaTempFilePath,
+              fileName: input.mediaFileName
+            });
+          } else {
+            await whatsappService.sendText({
+              instanceId: instance.instanceId,
+              token: instance.token,
+              number: item.number,
+              text: job.message
+            });
+          }
+          await bulkJobRepository.markItemSent(job.id, item.number);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to send message.";
+          await bulkJobRepository.markItemFailed(job.id, item.number, message);
+        }
+      }
+    } finally {
+      if (input.mediaTempFilePath) {
+        await fs.unlink(input.mediaTempFilePath).catch(() => undefined);
       }
     }
 

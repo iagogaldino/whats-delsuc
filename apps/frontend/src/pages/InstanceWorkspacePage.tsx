@@ -21,7 +21,7 @@ export function InstanceWorkspacePage({ instance, onBack }: InstanceWorkspacePag
             <h2 className="text-lg font-semibold text-emerald-300">
               {instance.displayName || "Instancia conectada"}
             </h2>
-            <p className="mt-1 text-xs uppercase tracking-wide text-emerald-300">Status: {instance.status}</p>
+            <p className="mt-1 text-xs uppercase tracking-wide text-emerald-300">{instance.status}</p>
           </div>
           <button
             type="button"
@@ -46,7 +46,7 @@ export function InstanceWorkspacePage({ instance, onBack }: InstanceWorkspacePag
                   : "border-slate-700 bg-slate-950/50 text-slate-300 hover:bg-slate-800"
               }`}
             >
-              Prompt Editor
+              Auto resposta
             </button>
             <button
               type="button"
@@ -57,7 +57,7 @@ export function InstanceWorkspacePage({ instance, onBack }: InstanceWorkspacePag
                   : "border-slate-700 bg-slate-950/50 text-slate-300 hover:bg-slate-800"
               }`}
             >
-              Bulk Sender
+              Disparo em massa
             </button>
           </div>
         </aside>
