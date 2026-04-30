@@ -18,7 +18,17 @@ export type PublicInstance = {
   autoReplyEnabled: boolean;
   autoReplyMode: "fixed" | "ai";
   fixedReplyMessage: string;
+  fixedReplyTemplateId?: string;
   systemPrompt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MessageTemplate = {
+  id: string;
+  name: string;
+  content: string;
+  placeholders: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -194,6 +204,7 @@ export async function updateInstanceAutoReply(
     autoReplyEnabled: boolean;
     autoReplyMode: "fixed" | "ai";
     fixedReplyMessage?: string;
+    fixedReplyTemplateId?: string;
     systemPrompt?: string;
   }
 ): Promise<PublicInstance> {
@@ -211,6 +222,74 @@ export async function updateInstanceAutoReply(
   }
 
   return response.json() as Promise<PublicInstance>;
+}
+
+export async function listMessageTemplates(): Promise<MessageTemplate[]> {
+  const response = await fetch(`${API_BASE_URL}/message-templates`, {
+    method: "GET",
+    headers: {
+      ...authHeadersAsObject()
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return response.json() as Promise<MessageTemplate[]>;
+}
+
+export async function createMessageTemplate(input: {
+  name: string;
+  content: string;
+}): Promise<MessageTemplate> {
+  const response = await fetch(`${API_BASE_URL}/message-templates`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeadersAsObject()
+    },
+    body: JSON.stringify(input)
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return response.json() as Promise<MessageTemplate>;
+}
+
+export async function updateMessageTemplate(
+  templateId: string,
+  input: { name: string; content: string }
+): Promise<MessageTemplate> {
+  const response = await fetch(`${API_BASE_URL}/message-templates/${templateId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeadersAsObject()
+    },
+    body: JSON.stringify(input)
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return response.json() as Promise<MessageTemplate>;
+}
+
+export async function deleteMessageTemplate(templateId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/message-templates/${templateId}`, {
+    method: "DELETE",
+    headers: {
+      ...authHeadersAsObject()
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
 }
 
 export async function sendBulk(instanceId: string, numbers: string[], message: string): Promise<BulkJob> {

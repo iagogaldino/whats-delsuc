@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { SectionCard } from "../components/SectionCard";
-import { getBulkJob, listBulkJobs, sendBulk, type BulkJob, type BulkJobSummary } from "../services/api";
+import {
+  getBulkJob,
+  listBulkJobs,
+  listMessageTemplates,
+  sendBulk,
+  type BulkJob,
+  type BulkJobSummary,
+  type MessageTemplate
+} from "../services/api";
 
 type BulkSenderPageProps = {
   instanceId?: string;
@@ -17,6 +25,8 @@ export function BulkSenderPage({ instanceId }: BulkSenderPageProps) {
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [expandedJobDetail, setExpandedJobDetail] = useState<BulkJob | null>(null);
   const [expandedJobLoading, setExpandedJobLoading] = useState(false);
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
   const loadJobHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -34,6 +44,14 @@ export function BulkSenderPage({ instanceId }: BulkSenderPageProps) {
   useEffect(() => {
     void loadJobHistory();
   }, [loadJobHistory]);
+
+  useEffect(() => {
+    void listMessageTemplates()
+      .then((items) => setTemplates(items))
+      .catch(() => {
+        setTemplates([]);
+      });
+  }, []);
 
   const isJobRunning = bulkJob ? bulkJob.status === "QUEUED" || bulkJob.status === "PROCESSING" : false;
 
@@ -118,6 +136,33 @@ export function BulkSenderPage({ instanceId }: BulkSenderPageProps) {
           value={messageInput}
           onChange={(event) => setMessageInput(event.target.value)}
         />
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
+            value={selectedTemplateId}
+            onChange={(event) => setSelectedTemplateId(event.target.value)}
+          >
+            <option value="">Selecionar template</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+            disabled={!selectedTemplateId}
+            onClick={() => {
+              const selected = templates.find((item) => item.id === selectedTemplateId);
+              if (selected) {
+                setMessageInput(selected.content);
+              }
+            }}
+          >
+            Aplicar template
+          </button>
+        </div>
         <button
           type="submit"
           className="rounded-lg bg-emerald-500 px-4 py-2 font-medium text-slate-950 hover:bg-emerald-400"
@@ -180,10 +225,7 @@ export function BulkSenderPage({ instanceId }: BulkSenderPageProps) {
               <li key={row.id} className="rounded-lg border border-slate-700 bg-slate-900/40 p-3 text-sm">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0 space-y-1">
-                    <p className="text-xs text-slate-500">
-                      {new Date(row.createdAt).toLocaleString()} ·{" "}
-                      <span className="text-slate-400">instancia</span> {row.instanceId}
-                    </p>
+                    <p className="text-xs text-slate-500">{new Date(row.createdAt).toLocaleString()}</p>
                     <p className="text-slate-200">
                       Status: <span className="text-emerald-400/90">{row.status}</span> · {row.sentCount} enviados ·{" "}
                       {row.failedCount} falhas · {row.total} contatos

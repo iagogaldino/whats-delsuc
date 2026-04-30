@@ -3,6 +3,7 @@ import { AIService } from "../services/ai.service.js";
 import { WhatsappService } from "../services/whatsapp.service.js";
 import { InstanceRepository } from "../repositories/instance.repository.js";
 import { ChatLogRepository } from "../repositories/chat-log.repository.js";
+import { MessageTemplateRepository } from "../repositories/message-template.repository.js";
 
 type WhatsAppWebhookBody = {
   event?: string;
@@ -18,6 +19,17 @@ const aiService = new AIService();
 const whatsappService = new WhatsappService();
 const instanceRepository = new InstanceRepository();
 const chatLogRepository = new ChatLogRepository();
+const messageTemplateRepository = new MessageTemplateRepository();
+
+function renderTemplateWithContext(
+  content: string,
+  context: Record<string, string>
+): string {
+  return content.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (whole, key: string) => {
+    const normalized = key.trim().toLowerCase();
+    return context[normalized] ?? whole;
+  });
+}
 
 export async function whatsappWebhookController(
   request: FastifyRequest<{ Body: WhatsAppWebhookBody }>,
@@ -58,7 +70,25 @@ export async function whatsappWebhookController(
   let modelUsed: string | undefined;
 
   if (instance.autoReplyMode === "fixed") {
-    outboundMessage = instance.fixedReplyMessage.trim();
+    const selectedTemplateId = instance.fixedReplyTemplateId?.trim();
+    if (selectedTemplateId) {
+      const selectedTemplate = await messageTemplateRepository.findByIdForUser(
+        selectedTemplateId,
+        instance.userId
+      );
+      if (selectedTemplate) {
+        outboundMessage = renderTemplateWithContext(selectedTemplate.content, {
+          telefone: customerNumber,
+          mensagem: inboundMessageText,
+          instanciaid: instance.instanceId
+        }).trim();
+      }
+    }
+
+    if (!outboundMessage) {
+      outboundMessage = instance.fixedReplyMessage.trim();
+    }
+
     if (!outboundMessage) {
       return reply.status(202).send({ ignored: true, reason: "fixed-message-empty" });
     }

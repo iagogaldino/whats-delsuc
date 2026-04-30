@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SectionCard } from "../components/SectionCard";
 import { useSubmitState } from "../hooks/useSubmitState";
-import { updateInstanceAutoReply } from "../services/api";
-import type { PublicInstance } from "../services/api";
+import { listMessageTemplates, updateInstanceAutoReply } from "../services/api";
+import type { MessageTemplate, PublicInstance } from "../services/api";
 
 type PromptEditorPageProps = {
   instanceId?: string;
@@ -17,8 +17,18 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(instance?.autoReplyEnabled ?? false);
   const [autoReplyMode, setAutoReplyMode] = useState<"fixed" | "ai">(instance?.autoReplyMode ?? "ai");
   const [fixedReplyMessage, setFixedReplyMessage] = useState(instance?.fixedReplyMessage ?? "");
+  const [fixedReplyTemplateId, setFixedReplyTemplateId] = useState(instance?.fixedReplyTemplateId ?? "");
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [validationError, setValidationError] = useState<string | null>(null);
   const { loading, message, withSubmit } = useSubmitState();
+
+  useEffect(() => {
+    void listMessageTemplates()
+      .then((items) => setTemplates(items))
+      .catch(() => {
+        setTemplates([]);
+      });
+  }, []);
 
   return (
     <SectionCard
@@ -48,6 +58,7 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
                 autoReplyEnabled,
                 autoReplyMode,
                 fixedReplyMessage,
+                fixedReplyTemplateId: fixedReplyTemplateId || undefined,
                 systemPrompt
               }).then(() => undefined),
             "Configuracao de auto-resposta atualizada com sucesso."
@@ -86,12 +97,36 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
             placeholder="Descreva o comportamento da IA."
           />
         ) : (
-          <textarea
-            className="min-h-44 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
-            value={fixedReplyMessage}
-            onChange={(event) => setFixedReplyMessage(event.target.value)}
-            placeholder="Mensagem enviada automaticamente ao cliente."
-          />
+          <div className="space-y-2">
+            <label className="block space-y-1 text-sm text-slate-300">
+              <span>Template salvo (opcional)</span>
+              <select
+                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
+                value={fixedReplyTemplateId}
+                onChange={(event) => {
+                  const nextId = event.target.value;
+                  setFixedReplyTemplateId(nextId);
+                  const selected = templates.find((item) => item.id === nextId);
+                  if (selected) {
+                    setFixedReplyMessage(selected.content);
+                  }
+                }}
+              >
+                <option value="">Sem template</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <textarea
+              className="min-h-44 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
+              value={fixedReplyMessage}
+              onChange={(event) => setFixedReplyMessage(event.target.value)}
+              placeholder="Mensagem enviada automaticamente ao cliente."
+            />
+          </div>
         )}
         <button
           type="submit"

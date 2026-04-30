@@ -15,14 +15,18 @@ const updateAutoReplySchema = z
     autoReplyEnabled: z.boolean(),
     autoReplyMode: z.enum(["fixed", "ai"]),
     fixedReplyMessage: z.string().trim().optional(),
+    fixedReplyTemplateId: z.string().trim().optional(),
     systemPrompt: z.string().trim().optional()
   })
   .superRefine((data, ctx) => {
-    if (data.autoReplyMode === "fixed" && (!data.fixedReplyMessage || data.fixedReplyMessage.length === 0)) {
+    const hasFixedMessage = Boolean(data.fixedReplyMessage && data.fixedReplyMessage.length > 0);
+    const hasFixedTemplate = Boolean(data.fixedReplyTemplateId && data.fixedReplyTemplateId.length > 0);
+
+    if (data.autoReplyMode === "fixed" && !hasFixedMessage && !hasFixedTemplate) {
       ctx.addIssue({
         code: "custom",
         path: ["fixedReplyMessage"],
-        message: "fixedReplyMessage is required when autoReplyMode is fixed"
+        message: "fixedReplyMessage or fixedReplyTemplateId is required when autoReplyMode is fixed"
       });
     }
 
@@ -69,6 +73,7 @@ function toPublicInstance(inst: WhatsappInstanceModel) {
     autoReplyEnabled: inst.autoReplyEnabled,
     autoReplyMode: inst.autoReplyMode,
     fixedReplyMessage: inst.fixedReplyMessage,
+    fixedReplyTemplateId: inst.fixedReplyTemplateId,
     systemPrompt: inst.systemPrompt,
     createdAt: inst.createdAt.toISOString(),
     updatedAt: inst.updatedAt.toISOString()
@@ -276,6 +281,7 @@ export async function updateInstanceAutoReplyController(
   }
 
   const fixedReplyMessage = (parsedBody.data.fixedReplyMessage ?? "").trim();
+  const fixedReplyTemplateId = parsedBody.data.fixedReplyTemplateId?.trim() || undefined;
   const systemPrompt = (parsedBody.data.systemPrompt ?? instance.systemPrompt).trim();
 
   if (parsedBody.data.autoReplyEnabled) {
@@ -299,6 +305,7 @@ export async function updateInstanceAutoReplyController(
     autoReplyEnabled: parsedBody.data.autoReplyEnabled,
     autoReplyMode: parsedBody.data.autoReplyMode,
     fixedReplyMessage,
+    fixedReplyTemplateId,
     systemPrompt
   });
 

@@ -3,10 +3,11 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { InstanceWorkspacePage } from "./pages/InstanceWorkspacePage";
 import { LoginPage } from "./pages/LoginPage";
 import { SignupPage } from "./pages/SignupPage";
+import { TemplatesPage } from "./pages/TemplatesPage";
 import { getAccessToken, logout } from "./services/api";
 import type { PublicInstance } from "./services/api";
 
-const tabs = ["Dashboard"] as const;
+const tabs = ["Dashboard", "Templates"] as const;
 type Tab = (typeof tabs)[number];
 type AppView = "dashboard" | "instance";
 
@@ -46,7 +47,14 @@ function App() {
               <button
                 key={tab}
                 type="button"
-                onClick={() => setActiveTab(tab)}
+                onClick={() => {
+                  setActiveTab(tab);
+                  if (tab === "Dashboard") {
+                    return;
+                  }
+                  setView("dashboard");
+                  setSelectedInstance(null);
+                }}
                 className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
                   activeTab === tab
                     ? "bg-emerald-500/20 text-emerald-300"
@@ -87,6 +95,7 @@ function App() {
               }}
             />
           ) : null}
+          {activeTab === "Templates" ? <TemplatesPage /> : null}
         </main>
       </div>
     </div>

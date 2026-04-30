@@ -16,6 +16,7 @@ type UpdateAutoReplyInput = {
   autoReplyEnabled: boolean;
   autoReplyMode: AutoReplyMode;
   fixedReplyMessage: string;
+  fixedReplyTemplateId?: string;
   systemPrompt: string;
 };
 
@@ -100,6 +101,7 @@ export class InstanceRepository {
             autoReplyEnabled: input.autoReplyEnabled,
             autoReplyMode: input.autoReplyMode,
             fixedReplyMessage: input.fixedReplyMessage,
+            fixedReplyTemplateId: input.fixedReplyTemplateId,
             systemPrompt: input.systemPrompt,
             updatedAt: new Date()
           }
@@ -120,6 +122,7 @@ type WhatsappInstanceDocument = {
   autoReplyEnabled: boolean;
   autoReplyMode: AutoReplyMode;
   fixedReplyMessage?: string;
+  fixedReplyTemplateId?: string;
   displayName?: string;
   status: "CONNECTED" | "DISCONNECTED";
   createdAt: Date;
@@ -135,6 +138,7 @@ export type WhatsappInstanceModel = {
   autoReplyEnabled: boolean;
   autoReplyMode: AutoReplyMode;
   fixedReplyMessage: string;
+  fixedReplyTemplateId?: string;
   displayName?: string;
   status: "CONNECTED" | "DISCONNECTED";
   createdAt: Date;
@@ -151,6 +155,7 @@ function mapInstanceDocument(document: WhatsappInstanceDocument): WhatsappInstan
     autoReplyEnabled: document.autoReplyEnabled ?? false,
     autoReplyMode: document.autoReplyMode ?? "ai",
     fixedReplyMessage: document.fixedReplyMessage ?? "",
+    fixedReplyTemplateId: document.fixedReplyTemplateId,
     displayName: document.displayName,
     status: document.status,
     createdAt: document.createdAt,
