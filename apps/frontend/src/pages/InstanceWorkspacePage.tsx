@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { BulkSenderPage } from "./BulkSenderPage";
 import { PromptEditorPage } from "./PromptEditorPage";
 import type { PublicInstance } from "../services/api";
@@ -7,7 +8,11 @@ type InstanceWorkspacePageProps = {
   onBack: () => void;
 };
 
+type InstanceFeature = "prompt" | "bulk";
+
 export function InstanceWorkspacePage({ instance, onBack }: InstanceWorkspacePageProps) {
+  const [selectedFeature, setSelectedFeature] = useState<InstanceFeature | null>(null);
+
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-emerald-700/60 bg-emerald-900/20 p-4">
@@ -28,8 +33,45 @@ export function InstanceWorkspacePage({ instance, onBack }: InstanceWorkspacePag
         </div>
       </div>
 
-      <PromptEditorPage instanceId={instance.instanceId} />
-      <BulkSenderPage instanceId={instance.instanceId} />
+      <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">Funcionalidades</p>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setSelectedFeature("prompt")}
+              className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
+                selectedFeature === "prompt"
+                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
+                  : "border-slate-700 bg-slate-950/50 text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              Prompt Editor
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedFeature("bulk")}
+              className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
+                selectedFeature === "bulk"
+                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
+                  : "border-slate-700 bg-slate-950/50 text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              Bulk Sender
+            </button>
+          </div>
+        </aside>
+
+        <section className="min-h-40">
+          {selectedFeature === null ? (
+            <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-6 text-sm text-slate-300">
+              Escolha uma funcionalidade no menu lateral para comecar.
+            </div>
+          ) : null}
+          {selectedFeature === "prompt" ? <PromptEditorPage instanceId={instance.instanceId} /> : null}
+          {selectedFeature === "bulk" ? <BulkSenderPage instanceId={instance.instanceId} /> : null}
+        </section>
+      </div>
     </div>
   );
 }
