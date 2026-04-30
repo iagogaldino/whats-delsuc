@@ -4,14 +4,61 @@ import { InstanceRepository } from "../repositories/instance.repository.js";
 import type { WhatsappInstanceModel } from "../repositories/instance.repository.js";
 import { UserRepository } from "../repositories/user.repository.js";
 import { WhatsappService } from "../services/whatsapp.service.js";
+import { env } from "../lib/env.js";
 
 const createInstanceSchema = z.object({
   name: z.string().min(1).optional()
 });
 
+const updateAutoReplySchema = z
+  .object({
+    autoReplyEnabled: z.boolean(),
+    autoReplyMode: z.enum(["fixed", "ai"]),
+    fixedReplyMessage: z.string().trim().optional(),
+    systemPrompt: z.string().trim().optional()
+  })
+  .superRefine((data, ctx) => {
+    if (data.autoReplyMode === "fixed" && (!data.fixedReplyMessage || data.fixedReplyMessage.length === 0)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["fixedReplyMessage"],
+        message: "fixedReplyMessage is required when autoReplyMode is fixed"
+      });
+    }
+
+    if (data.autoReplyMode === "ai" && (!data.systemPrompt || data.systemPrompt.length === 0)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["systemPrompt"],
+        message: "systemPrompt is required when autoReplyMode is ai"
+      });
+    }
+  });
+
 const instanceRepository = new InstanceRepository();
 const userRepository = new UserRepository();
 const whatsappService = new WhatsappService();
+
+function getConfiguredWebhookUrl(): string {
+  if (env.INSTANCE_WEBHOOK_URL) {
+    const rawUrl = new URL(env.INSTANCE_WEBHOOK_URL);
+    const hasCustomPath = rawUrl.pathname !== "/" && rawUrl.pathname.length > 0;
+    if (hasCustomPath) {
+      return rawUrl.toString();
+    }
+
+    const normalizedBase = rawUrl.toString().endsWith("/") ? rawUrl.toString() : `${rawUrl.toString()}/`;
+    return new URL("webhooks/whatsapp", normalizedBase).toString();
+  }
+
+  const base = env.INSTANCE_WEBHOOK_BASE_URL;
+  if (!base) {
+    throw new Error("Missing INSTANCE_WEBHOOK_BASE_URL (or INSTANCE_WEBHOOK_URL).");
+  }
+
+  const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+  return new URL("webhooks/whatsapp", normalizedBase).toString();
+}
 
 function toPublicInstance(inst: WhatsappInstanceModel) {
   return {
@@ -19,6 +66,10 @@ function toPublicInstance(inst: WhatsappInstanceModel) {
     instanceId: inst.instanceId,
     displayName: inst.displayName,
     status: inst.status,
+    autoReplyEnabled: inst.autoReplyEnabled,
+    autoReplyMode: inst.autoReplyMode,
+    fixedReplyMessage: inst.fixedReplyMessage,
+    systemPrompt: inst.systemPrompt,
     createdAt: inst.createdAt.toISOString(),
     updatedAt: inst.updatedAt.toISOString()
   };
@@ -188,4 +239,72 @@ export async function startInstanceController(
 
   await instanceRepository.updateStatus(instanceId, "DISCONNECTED");
   return reply.status(200).send({ instanceId: instance.instanceId, qrCode });
+}
+
+export async function updateInstanceAutoReplyController(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  if (!request.authUser) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+
+  const paramsSchema = z.object({ instanceId: z.string().min(1) });
+  const parsedParams = paramsSchema.safeParse(request.params);
+  if (!parsedParams.success) {
+    return reply.status(400).send({ error: "Invalid params" });
+  }
+
+  const parsedBody = updateAutoReplySchema.safeParse(
+    request.body && typeof request.body === "object" ? request.body : {}
+  );
+  if (!parsedBody.success) {
+    return reply.status(400).send({ error: "Invalid payload", details: parsedBody.error.flatten() });
+  }
+
+  const instance = await instanceRepository.findByInstanceId(
+    parsedParams.data.instanceId,
+    request.authUser.userId
+  );
+  if (!instance) {
+    return reply.status(404).send({ error: "Instance not found" });
+  }
+
+  const user = await userRepository.findById(request.authUser.userId);
+  if (!user?.waSessionJwt) {
+    return reply.status(400).send({ error: "No WhatsApp session JWT available for this user" });
+  }
+
+  const fixedReplyMessage = (parsedBody.data.fixedReplyMessage ?? "").trim();
+  const systemPrompt = (parsedBody.data.systemPrompt ?? instance.systemPrompt).trim();
+
+  if (parsedBody.data.autoReplyEnabled) {
+    try {
+      await whatsappService.setInstanceWebhookConfig({
+        sessionJwt: user.waSessionJwt,
+        instanceId: instance.instanceId,
+        url: getConfiguredWebhookUrl(),
+        enabled: true
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to enable WhatsApp webhook for this instance.";
+      return reply.status(502).send({ error: message });
+    }
+  }
+
+  const updated = await instanceRepository.updateAutoReplyConfig({
+    instanceId: instance.instanceId,
+    userId: request.authUser.userId,
+    autoReplyEnabled: parsedBody.data.autoReplyEnabled,
+    autoReplyMode: parsedBody.data.autoReplyMode,
+    fixedReplyMessage,
+    systemPrompt
+  });
+
+  if (!updated) {
+    return reply.status(404).send({ error: "Instance not found" });
+  }
+
+  return reply.status(200).send(toPublicInstance(updated));
 }

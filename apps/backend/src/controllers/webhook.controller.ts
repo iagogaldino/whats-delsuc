@@ -50,21 +50,36 @@ export async function whatsappWebhookController(
     message: inboundMessageText
   });
 
-  const aiReply = await aiService.generateReply(instance.systemPrompt, inboundMessageText);
+  if (!instance.autoReplyEnabled) {
+    return reply.status(202).send({ ignored: true, reason: "auto-reply-disabled" });
+  }
+
+  let outboundMessage = "";
+  let modelUsed: string | undefined;
+
+  if (instance.autoReplyMode === "fixed") {
+    outboundMessage = instance.fixedReplyMessage.trim();
+    if (!outboundMessage) {
+      return reply.status(202).send({ ignored: true, reason: "fixed-message-empty" });
+    }
+  } else {
+    outboundMessage = await aiService.generateReply(instance.systemPrompt, inboundMessageText);
+    modelUsed = aiService.getModelName();
+  }
 
   await whatsappService.sendText({
     instanceId: instance.instanceId,
     token: instance.token,
     number: customerNumber,
-    text: aiReply
+    text: outboundMessage
   });
 
   await chatLogRepository.create({
     whatsappInstanceId: instance.id,
     customerNumber,
     direction: "OUTBOUND",
-    message: aiReply,
-    modelUsed: aiService.getModelName()
+    message: outboundMessage,
+    modelUsed
   });
 
   return reply.status(200).send({ success: true });

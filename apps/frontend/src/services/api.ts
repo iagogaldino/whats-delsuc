@@ -15,6 +15,10 @@ export type PublicInstance = {
   instanceId: string;
   displayName?: string;
   status: string;
+  autoReplyEnabled: boolean;
+  autoReplyMode: "fixed" | "ai";
+  fixedReplyMessage: string;
+  systemPrompt: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -182,6 +186,31 @@ export async function updatePrompt(instanceId: string, systemPrompt: string): Pr
     },
     body: JSON.stringify({ systemPrompt })
   });
+}
+
+export async function updateInstanceAutoReply(
+  instanceId: string,
+  input: {
+    autoReplyEnabled: boolean;
+    autoReplyMode: "fixed" | "ai";
+    fixedReplyMessage?: string;
+    systemPrompt?: string;
+  }
+): Promise<PublicInstance> {
+  const response = await fetch(`${API_BASE_URL}/instances/${instanceId}/auto-reply`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeadersAsObject()
+    },
+    body: JSON.stringify(input)
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return response.json() as Promise<PublicInstance>;
 }
 
 export async function sendBulk(instanceId: string, numbers: string[], message: string): Promise<BulkJob> {

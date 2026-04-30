@@ -8,6 +8,17 @@ type CreateInstanceInput = {
   displayName?: string;
 };
 
+export type AutoReplyMode = "fixed" | "ai";
+
+type UpdateAutoReplyInput = {
+  instanceId: string;
+  userId: string;
+  autoReplyEnabled: boolean;
+  autoReplyMode: AutoReplyMode;
+  fixedReplyMessage: string;
+  systemPrompt: string;
+};
+
 export class InstanceRepository {
   async findByInstanceIdGlobal(instanceId: string): Promise<WhatsappInstanceModel | null> {
     const instance = await getMongoDb()
@@ -57,6 +68,9 @@ export class InstanceRepository {
           instanceId: input.instanceId,
           status: "DISCONNECTED",
           systemPrompt: "Voce e um assistente virtual objetivo e educado.",
+          autoReplyEnabled: false,
+          autoReplyMode: "ai",
+          fixedReplyMessage: "",
           createdAt: now
         }
       },
@@ -75,6 +89,26 @@ export class InstanceRepository {
       .collection<WhatsappInstanceDocument>("whatsapp_instances")
       .updateOne({ instanceId }, { $set: { status, updatedAt: new Date() } });
   }
+
+  async updateAutoReplyConfig(input: UpdateAutoReplyInput): Promise<WhatsappInstanceModel | null> {
+    const result = await getMongoDb()
+      .collection<WhatsappInstanceDocument>("whatsapp_instances")
+      .findOneAndUpdate(
+        { instanceId: input.instanceId, userId: input.userId },
+        {
+          $set: {
+            autoReplyEnabled: input.autoReplyEnabled,
+            autoReplyMode: input.autoReplyMode,
+            fixedReplyMessage: input.fixedReplyMessage,
+            systemPrompt: input.systemPrompt,
+            updatedAt: new Date()
+          }
+        },
+        { returnDocument: "after" }
+      );
+
+    return result ? mapInstanceDocument(result) : null;
+  }
 }
 
 type WhatsappInstanceDocument = {
@@ -83,6 +117,9 @@ type WhatsappInstanceDocument = {
   instanceId: string;
   token: string;
   systemPrompt: string;
+  autoReplyEnabled: boolean;
+  autoReplyMode: AutoReplyMode;
+  fixedReplyMessage?: string;
   displayName?: string;
   status: "CONNECTED" | "DISCONNECTED";
   createdAt: Date;
@@ -95,6 +132,9 @@ export type WhatsappInstanceModel = {
   instanceId: string;
   token: string;
   systemPrompt: string;
+  autoReplyEnabled: boolean;
+  autoReplyMode: AutoReplyMode;
+  fixedReplyMessage: string;
   displayName?: string;
   status: "CONNECTED" | "DISCONNECTED";
   createdAt: Date;
@@ -108,6 +148,9 @@ function mapInstanceDocument(document: WhatsappInstanceDocument): WhatsappInstan
     instanceId: document.instanceId,
     token: document.token,
     systemPrompt: document.systemPrompt,
+    autoReplyEnabled: document.autoReplyEnabled ?? false,
+    autoReplyMode: document.autoReplyMode ?? "ai",
+    fixedReplyMessage: document.fixedReplyMessage ?? "",
     displayName: document.displayName,
     status: document.status,
     createdAt: document.createdAt,

@@ -38,6 +38,13 @@ type AuthSessionInput = {
   password: string;
 };
 
+type WebhookConfigResult = {
+  url: string | null;
+  enabled: boolean;
+  hasSecret: boolean;
+  secretLast4: string | null;
+};
+
 export class WhatsappService {
   private buildSendTextAttempts(input: SendTextInput): SendTextAttempt[] {
     return [
@@ -389,5 +396,44 @@ export class WhatsappService {
     }
 
     return registerPayload.token;
+  }
+
+  async setInstanceWebhookConfig(input: {
+    sessionJwt: string;
+    instanceId: string;
+    url: string;
+    enabled: boolean;
+    regenerateSecret?: boolean;
+  }): Promise<WebhookConfigResult> {
+    const response = await fetch(
+      `${env.WHATSAPP_CONNECT_BASE_URL}/api/v1/instances/${encodeURIComponent(input.instanceId)}/whatsapp/webhook`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${input.sessionJwt}`
+        },
+        body: JSON.stringify({
+          url: input.url,
+          enabled: input.enabled,
+          regenerateSecret: input.regenerateSecret ?? false
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`WhatsApp webhook config failed (${response.status}): ${errorText}`);
+    }
+
+    const payload = (await response.json()) as {
+      config?: WebhookConfigResult;
+    };
+
+    if (!payload.config) {
+      throw new Error("WhatsApp webhook config response is missing config.");
+    }
+
+    return payload.config;
   }
 }

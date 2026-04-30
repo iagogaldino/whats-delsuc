@@ -68,7 +68,9 @@ export function InstanceWorkspacePage({ instance, onBack }: InstanceWorkspacePag
               Escolha uma funcionalidade no menu lateral para comecar.
             </div>
           ) : null}
-          {selectedFeature === "prompt" ? <PromptEditorPage instanceId={instance.instanceId} /> : null}
+          {selectedFeature === "prompt" ? (
+            <PromptEditorPage instanceId={instance.instanceId} instance={instance} />
+          ) : null}
           {selectedFeature === "bulk" ? <BulkSenderPage instanceId={instance.instanceId} /> : null}
         </section>
       </div>
