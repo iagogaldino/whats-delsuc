@@ -16,6 +16,7 @@ const updateAutoReplySchema = z
     autoReplyMode: z.enum(["fixed", "ai"]),
     fixedReplyMessage: z.string().trim().optional(),
     fixedReplyTemplateId: z.string().trim().optional(),
+    autoReplyAllowedNumbers: z.array(z.string().trim().min(1)).optional(),
     systemPrompt: z.string().trim().optional()
   })
   .superRefine((data, ctx) => {
@@ -74,6 +75,7 @@ function toPublicInstance(inst: WhatsappInstanceModel) {
     autoReplyMode: inst.autoReplyMode,
     fixedReplyMessage: inst.fixedReplyMessage,
     fixedReplyTemplateId: inst.fixedReplyTemplateId,
+    autoReplyAllowedNumbers: inst.autoReplyAllowedNumbers,
     systemPrompt: inst.systemPrompt,
     createdAt: inst.createdAt.toISOString(),
     updatedAt: inst.updatedAt.toISOString()
@@ -282,6 +284,7 @@ export async function updateInstanceAutoReplyController(
 
   const fixedReplyMessage = (parsedBody.data.fixedReplyMessage ?? "").trim();
   const fixedReplyTemplateId = parsedBody.data.fixedReplyTemplateId?.trim() || undefined;
+  const autoReplyAllowedNumbers = (parsedBody.data.autoReplyAllowedNumbers ?? []).map((item) => item.trim());
   const systemPrompt = (parsedBody.data.systemPrompt ?? instance.systemPrompt).trim();
 
   if (parsedBody.data.autoReplyEnabled) {
@@ -306,6 +309,7 @@ export async function updateInstanceAutoReplyController(
     autoReplyMode: parsedBody.data.autoReplyMode,
     fixedReplyMessage,
     fixedReplyTemplateId,
+    autoReplyAllowedNumbers,
     systemPrompt
   });
 

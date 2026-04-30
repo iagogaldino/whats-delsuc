@@ -18,6 +18,9 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
   const [autoReplyMode, setAutoReplyMode] = useState<"fixed" | "ai">(instance?.autoReplyMode ?? "ai");
   const [fixedReplyMessage, setFixedReplyMessage] = useState(instance?.fixedReplyMessage ?? "");
   const [fixedReplyTemplateId, setFixedReplyTemplateId] = useState(instance?.fixedReplyTemplateId ?? "");
+  const [autoReplyAllowedNumbersInput, setAutoReplyAllowedNumbersInput] = useState(
+    (instance?.autoReplyAllowedNumbers ?? []).join("\n")
+  );
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [validationError, setValidationError] = useState<string | null>(null);
   const { loading, message, withSubmit } = useSubmitState();
@@ -32,7 +35,7 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
 
   return (
     <SectionCard
-      title="Prompt Editor"
+      title="Auto resposta"
       subtitle="Defina a personalidade da IA que sera usada no webhook de auto-resposta."
     >
       <form
@@ -52,6 +55,10 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
             return;
           }
           setValidationError(null);
+          const autoReplyAllowedNumbers = autoReplyAllowedNumbersInput
+            .split(/[\n,;]+/)
+            .map((item) => item.trim())
+            .filter(Boolean);
           void withSubmit(
             () =>
               updateInstanceAutoReply(targetInstanceId, {
@@ -59,6 +66,7 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
                 autoReplyMode,
                 fixedReplyMessage,
                 fixedReplyTemplateId: fixedReplyTemplateId || undefined,
+                autoReplyAllowedNumbers,
                 systemPrompt
               }).then(() => undefined),
             "Configuracao de auto-resposta atualizada com sucesso."
@@ -88,6 +96,18 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
             <option value="ai">IA com prompt</option>
             <option value="fixed">Mensagem fixa</option>
           </select>
+        </label>
+        <label className="block space-y-1 text-sm text-slate-300">
+          <span>Responder automaticamente apenas para estes numeros (opcional)</span>
+          <textarea
+            className="min-h-24 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
+            placeholder="+5511999999999 (um por linha ou separados por virgula)"
+            value={autoReplyAllowedNumbersInput}
+            onChange={(event) => setAutoReplyAllowedNumbersInput(event.target.value)}
+          />
+          <span className="text-xs text-slate-400">
+            Se vazio, responde para qualquer numero. Se preenchido, responde apenas para os listados.
+          </span>
         </label>
         {autoReplyMode === "ai" ? (
           <textarea

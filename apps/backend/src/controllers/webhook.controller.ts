@@ -6,8 +6,15 @@ import { ChatLogRepository } from "../repositories/chat-log.repository.js";
 import { MessageTemplateRepository } from "../repositories/message-template.repository.js";
 
 type WhatsAppWebhookBody = {
-  event?: string;
+  messageId?: string;
+  from?: string;
+  to?: string | null;
+  timestamp?: string;
+  text?: string;
+  userId?: string;
   instanceId?: string;
+  // legacy compatibility
+  event?: string;
   data?: {
     direction?: "inbound" | "outbound";
     from?: string;
@@ -31,22 +38,50 @@ function renderTemplateWithContext(
   });
 }
 
+function normalizeNumber(value: string): string {
+  return value.replace(/\D+/g, "");
+}
+
 export async function whatsappWebhookController(
   request: FastifyRequest<{ Body: WhatsAppWebhookBody }>,
   reply: FastifyReply
 ): Promise<void> {
   const payload = request.body;
-  const isInbound = payload?.event === "on-message" && payload?.data?.direction === "inbound";
+  const hasDirectIncomingShape =
+    Boolean(payload?.messageId) &&
+    Boolean(payload?.instanceId) &&
+    Boolean(payload?.from) &&
+    typeof payload?.text === "string";
+  const isLegacyInbound = payload?.event === "on-message" && payload?.data?.direction === "inbound";
+  const isInbound = hasDirectIncomingShape || isLegacyInbound;
 
   if (!isInbound) {
+    request.log.info(
+      {
+        reason: "not-inbound",
+        hasDirectIncomingShape,
+        event: payload?.event,
+        direction: payload?.data?.direction
+      },
+      "Webhook ignored"
+    );
     return reply.status(202).send({ ignored: true });
   }
 
   const instanceId = payload.instanceId;
-  const customerNumber = payload.data?.from;
-  const inboundMessageText = payload.data?.body?.trim();
+  const customerNumber = (payload.from ?? payload.data?.from)?.trim();
+  const inboundMessageText = (payload.text ?? payload.data?.body)?.trim();
 
   if (!instanceId || !customerNumber || !inboundMessageText) {
+    request.log.info(
+      {
+        reason: "invalid-payload",
+        instanceId,
+        hasFrom: Boolean(customerNumber),
+        hasBody: Boolean(inboundMessageText)
+      },
+      "Webhook rejected"
+    );
     return reply.status(400).send({ error: "Invalid webhook payload" });
   }
 
@@ -63,7 +98,35 @@ export async function whatsappWebhookController(
   });
 
   if (!instance.autoReplyEnabled) {
+    request.log.info(
+      {
+        reason: "auto-reply-disabled",
+        instanceId: instance.instanceId
+      },
+      "Webhook ignored"
+    );
     return reply.status(202).send({ ignored: true, reason: "auto-reply-disabled" });
+  }
+
+  const allowedNumbers = instance.autoReplyAllowedNumbers
+    .map((item) => normalizeNumber(item))
+    .filter((item) => item.length > 0);
+
+  if (allowedNumbers.length > 0) {
+    const inboundNormalized = normalizeNumber(customerNumber);
+    if (!allowedNumbers.includes(inboundNormalized)) {
+      request.log.info(
+        {
+          reason: "number-not-allowed",
+          instanceId: instance.instanceId,
+          inboundNumber: customerNumber,
+          inboundNormalized,
+          allowedNumbers
+        },
+        "Webhook ignored"
+      );
+      return reply.status(202).send({ ignored: true, reason: "number-not-allowed" });
+    }
   }
 
   let outboundMessage = "";
@@ -90,6 +153,14 @@ export async function whatsappWebhookController(
     }
 
     if (!outboundMessage) {
+      request.log.info(
+        {
+          reason: "fixed-message-empty",
+          instanceId: instance.instanceId,
+          fixedReplyTemplateId: instance.fixedReplyTemplateId
+        },
+        "Webhook ignored"
+      );
       return reply.status(202).send({ ignored: true, reason: "fixed-message-empty" });
     }
   } else {

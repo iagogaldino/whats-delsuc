@@ -19,6 +19,7 @@ export type PublicInstance = {
   autoReplyMode: "fixed" | "ai";
   fixedReplyMessage: string;
   fixedReplyTemplateId?: string;
+  autoReplyAllowedNumbers: string[];
   systemPrompt: string;
   createdAt: string;
   updatedAt: string;
@@ -205,6 +206,7 @@ export async function updateInstanceAutoReply(
     autoReplyMode: "fixed" | "ai";
     fixedReplyMessage?: string;
     fixedReplyTemplateId?: string;
+    autoReplyAllowedNumbers?: string[];
     systemPrompt?: string;
   }
 ): Promise<PublicInstance> {
