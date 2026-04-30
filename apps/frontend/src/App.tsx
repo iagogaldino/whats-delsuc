@@ -39,7 +39,7 @@ function App() {
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex w-full max-w-6xl gap-6 px-4 py-8">
         <aside className="w-64 rounded-xl border border-slate-800 bg-slate-900 p-4">
-          <h1 className="text-xl font-bold text-emerald-400">AutoGPT-WhatsApp</h1>
+          <h1 className="text-xl font-bold text-emerald-400">WhatsDelsuc</h1>
           <p className="mt-1 text-xs text-slate-400">Automation Pro</p>
           <nav className="mt-6 space-y-2">
             {tabs.map((tab) => (
