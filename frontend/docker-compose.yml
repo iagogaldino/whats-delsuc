@@ -1,0 +1,10 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+    restart: unless-stopped
+    ports:
+      - "${PORT:-4173}:80"

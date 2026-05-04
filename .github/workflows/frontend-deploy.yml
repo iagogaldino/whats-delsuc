@@ -1,0 +1,88 @@
+name: Frontend Deploy
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/frontend/**"
+      - "frontend/**"
+      - ".github/workflows/frontend-deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: whatsdelsuc-frontend-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy frontend to production
+    runs-on: [self-hosted, ubunto-delsuc]
+    timeout-minutes: 20
+    environment: production
+
+    steps:
+      - name: Deploy frontend (runner local + HTTPS token)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GIT_READ_TOKEN: ${{ secrets.GIT_READ_TOKEN }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          FRONTEND_HEALTH_URL: ${{ vars.FRONTEND_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+
+          : "${DEPLOY_PATH:?DEPLOY_PATH secret is required}"
+          : "${GITHUB_REPOSITORY:?}"
+          : "${GITHUB_TOKEN:?}"
+
+          GIT_TOKEN="${GIT_READ_TOKEN:-$GITHUB_TOKEN}"
+          : "${GIT_TOKEN:?GIT_READ_TOKEN ou GITHUB_TOKEN em falta}"
+
+          DEPLOY_PATH="$(printf '%s' "$DEPLOY_PATH" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s:/*$::')"
+          HEALTH_URL="${FRONTEND_HEALTH_URL:-http://127.0.0.1:4173/}"
+          TOKEN_ORIGIN="https://x-access-token:${GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if [ -d "$DEPLOY_PATH/.git" ]; then
+            REMOTE_RESTORE="$(git -C "$DEPLOY_PATH" remote get-url origin)"
+          else
+            REMOTE_RESTORE="https://github.com/${GITHUB_REPOSITORY}.git"
+          fi
+          trap 'git -C "$DEPLOY_PATH" remote set-url origin "$REMOTE_RESTORE" 2>/dev/null || true' EXIT
+
+          if [ ! -d "$DEPLOY_PATH/.git" ]; then
+            mkdir -p "$(dirname "$DEPLOY_PATH")"
+            if [ -e "$DEPLOY_PATH" ] && [ ! -d "$DEPLOY_PATH/.git" ]; then
+              echo "::error::DEPLOY_PATH existe mas nao e um repositorio git."
+              exit 1
+            fi
+            echo "Primeira execucao: git clone (HTTPS)"
+            git clone "$TOKEN_ORIGIN" "$DEPLOY_PATH"
+          fi
+
+          git -C "$DEPLOY_PATH" remote set-url origin "$TOKEN_ORIGIN"
+
+          cd "$DEPLOY_PATH"
+          git fetch --all --prune
+          git checkout main
+          git pull --ff-only origin main
+
+          cd frontend
+
+          docker compose build --pull web
+          docker compose up -d --remove-orphans web
+          docker compose ps
+
+          echo "Health check frontend..."
+          if curl --fail --silent "$HEALTH_URL" >/dev/null; then
+            echo "Frontend health check passou."
+            docker image prune -f
+            exit 0
+          fi
+
+          echo "Frontend health check falhou."
+          docker compose logs --tail=80 web || true
+          exit 1

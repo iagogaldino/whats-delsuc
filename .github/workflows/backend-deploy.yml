@@ -1,0 +1,70 @@
+name: Backend Deploy
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/backend/**"
+      - "backend/**"
+      - ".github/workflows/backend-deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: whatsdelsuc-backend-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy backend to production
+    runs-on: [self-hosted, ubunto-delsuc]
+    timeout-minutes: 20
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Deploy backend (Docker Compose)
+        env:
+          BACKEND_DOTENV: ${{ secrets.BACKEND_DOTENV }}
+          BACKEND_HEALTH_URL: "http://localhost:3333/health"
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}/backend"
+
+          if [ -n "${BACKEND_DOTENV:-}" ]; then
+            umask 077
+            printf '%s\n' "$BACKEND_DOTENV" > .env
+            chmod 600 .env
+            echo "::notice::backend/.env criado a partir do secret BACKEND_DOTENV."
+          elif [ ! -f .env ]; then
+            echo "::error::backend/.env em falta: define o secret BACKEND_DOTENV no GitHub."
+            exit 1
+          fi
+
+          PORT_CONTAINERS="$(docker ps -q --filter publish=3333)"
+          if [ -n "$PORT_CONTAINERS" ]; then
+            docker rm -f $PORT_CONTAINERS
+          fi
+
+          docker compose build --pull api
+          docker compose up -d --remove-orphans api
+
+          echo "Aguardando API..."
+          for i in {1..20}; do
+            if curl --fail --silent "${BACKEND_HEALTH_URL}" >/dev/null; then
+              echo "Backend health check passou."
+              docker image prune -f
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "Falha no health check."
+          docker compose logs --tail=50 api
+          exit 1

@@ -1,4 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3333";
+const API_BASE_URL = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_URL || "http://localhost:3333")
+  : (import.meta.env.VITE_API_URL || "");
 const ACCESS_TOKEN_KEY = "whatsdelsuc_access_token";
 
 type AuthResponse = {
