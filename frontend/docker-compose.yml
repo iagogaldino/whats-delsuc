@@ -1,3 +1,5 @@
+name: whatsdelsuc-frontend
+
 services:
   web:
     build:

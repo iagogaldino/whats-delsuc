@@ -1,3 +1,5 @@
+name: whatsdelsuc-backend
+
 services:
   api:
     build:
