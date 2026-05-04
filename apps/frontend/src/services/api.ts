@@ -241,6 +241,44 @@ export async function updateInstanceAutoReply(
   return response.json() as Promise<PublicInstance>;
 }
 
+export type OpenAiSettings = {
+  hasOpenAiKey: boolean;
+};
+
+export async function getOpenAiSettings(): Promise<OpenAiSettings> {
+  const response = await fetch(`${API_BASE_URL}/settings/openai`, {
+    method: "GET",
+    headers: {
+      ...authHeadersAsObject()
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return response.json() as Promise<OpenAiSettings>;
+}
+
+export async function updateOpenAiSettings(
+  input: { type: "set"; openaiApiKey: string } | { type: "clear" }
+): Promise<OpenAiSettings> {
+  const response = await fetch(`${API_BASE_URL}/settings/openai`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeadersAsObject()
+    },
+    body: JSON.stringify(input)
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return response.json() as Promise<OpenAiSettings>;
+}
+
 export async function listMessageTemplates(): Promise<MessageTemplate[]> {
   const response = await fetch(`${API_BASE_URL}/message-templates`, {
     method: "GET",

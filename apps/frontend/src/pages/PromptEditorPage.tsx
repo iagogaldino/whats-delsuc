@@ -1,15 +1,20 @@
 import { useEffect, useState } from "react";
 import { SectionCard } from "../components/SectionCard";
 import { useSubmitState } from "../hooks/useSubmitState";
-import { getTemplateMediaObjectUrl, listMessageTemplates, updateInstanceAutoReply } from "../services/api";
+import {
+  getTemplateMediaObjectUrl,
+  listMessageTemplates,
+  updateInstanceAutoReply
+} from "../services/api";
 import type { MessageTemplate, PublicInstance } from "../services/api";
 
 type PromptEditorPageProps = {
   instanceId?: string;
   instance?: PublicInstance;
+  onInstanceUpdated?: (instance: PublicInstance) => void;
 };
 
-export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: PromptEditorPageProps) {
+export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInstanceUpdated }: PromptEditorPageProps) {
   const [instanceId] = useState(fixedInstanceId ?? "");
   const [systemPrompt, setSystemPrompt] = useState(
     instance?.systemPrompt ?? "Voce e um atendente virtual de pizzaria, educado e objetivo."
@@ -117,7 +122,9 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
                 fixedReplyTemplateId: fixedReplyTemplateId || undefined,
                 autoReplyAllowedNumbers,
                 systemPrompt
-              }).then(() => undefined),
+              }).then((updated) => {
+                onInstanceUpdated?.(updated);
+              }),
             "Configuracao de auto-resposta atualizada com sucesso."
           );
         }}
@@ -146,6 +153,12 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance }: Prom
             <option value="fixed">Mensagem fixa</option>
           </select>
         </label>
+        {autoReplyMode === "ai" ? (
+          <p className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2 text-xs text-slate-400">
+            A chave da API OpenAI é única para a sua conta e vale para todas as instâncias. Configure em{" "}
+            <span className="font-medium text-slate-300">Chave IA</span> na barra lateral.
+          </p>
+        ) : null}
         <label className="block space-y-1 text-sm text-slate-300">
           <span>Responder automaticamente apenas para estes numeros (opcional)</span>
           <textarea

@@ -8,6 +8,7 @@ import { instanceRoutes } from "./routes/instance.routes.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { bulkRoutes } from "./routes/bulk.routes.js";
 import { messageTemplateRoutes } from "./routes/message-template.routes.js";
+import { settingsRoutes } from "./routes/settings.routes.js";
 import { BulkSchedulerService } from "./services/bulk-scheduler.service.js";
 
 const app = Fastify({ logger: true });
@@ -31,6 +32,7 @@ app.register(webhookRoutes);
 app.register(instanceRoutes);
 app.register(bulkRoutes);
 app.register(messageTemplateRoutes);
+app.register(settingsRoutes);
 
 async function bootstrap() {
   try {

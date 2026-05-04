@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { AIService } from "../services/ai.service.js";
 import { WhatsappService } from "../services/whatsapp.service.js";
 import { InstanceRepository } from "../repositories/instance.repository.js";
+import { UserRepository } from "../repositories/user.repository.js";
 import { ChatLogRepository } from "../repositories/chat-log.repository.js";
 import { MessageTemplateRepository } from "../repositories/message-template.repository.js";
 
@@ -25,6 +26,7 @@ type WhatsAppWebhookBody = {
 const aiService = new AIService();
 const whatsappService = new WhatsappService();
 const instanceRepository = new InstanceRepository();
+const userRepository = new UserRepository();
 const chatLogRepository = new ChatLogRepository();
 const messageTemplateRepository = new MessageTemplateRepository();
 
@@ -164,7 +166,12 @@ export async function whatsappWebhookController(
       return reply.status(202).send({ ignored: true, reason: "fixed-message-empty" });
     }
   } else {
-    outboundMessage = await aiService.generateReply(instance.systemPrompt, inboundMessageText);
+    const owner = await userRepository.findById(instance.userId);
+    outboundMessage = await aiService.generateReply({
+      userOpenAiApiKey: owner?.openaiApiKey,
+      systemPrompt: instance.systemPrompt,
+      inboundMessageText
+    });
     modelUsed = aiService.getModelName();
   }
 

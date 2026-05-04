@@ -8,7 +8,11 @@ config({ path: path.resolve(process.cwd(), "../../.env"), override: false });
 const envSchema = z
   .object({
     PORT: z.coerce.number().default(3333),
-    OPENAI_API_KEY: z.string().min(1),
+    // Opcional: fallback no servidor se a instância não tiver chave na interface.
+    OPENAI_API_KEY: z.preprocess(
+      (value) => (value === "" || value === undefined ? undefined : value),
+      z.string().min(1).optional()
+    ),
     WHATSAPP_CONNECT_BASE_URL: z.string().url(),
     WHATSAPP_CONNECT_API_KEY: z
       .union([z.string().min(1), z.literal("")])

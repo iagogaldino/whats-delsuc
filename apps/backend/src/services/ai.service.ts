@@ -4,21 +4,30 @@ import { env } from "../lib/env.js";
 const MODEL_NAME = "gpt-4o-mini";
 
 export class AIService {
-  private readonly client: OpenAI;
-
-  constructor() {
-    this.client = new OpenAI({
-      apiKey: env.OPENAI_API_KEY
-    });
+  resolveApiKey(userApiKey?: string | null): string | undefined {
+    const trimmed = userApiKey?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+    return env.OPENAI_API_KEY;
   }
 
-  async generateReply(systemPrompt: string, inboundMessageText: string): Promise<string> {
-    // Concatenate the user's prompt as system message + customer text as user message.
-    const completion = await this.client.chat.completions.create({
+  async generateReply(input: {
+    userOpenAiApiKey?: string | null;
+    systemPrompt: string;
+    inboundMessageText: string;
+  }): Promise<string> {
+    const apiKey = this.resolveApiKey(input.userOpenAiApiKey);
+    if (!apiKey) {
+      return "Desculpe, a chave da API OpenAI não está configurada. Use o menu Chave IA na lateral.";
+    }
+
+    const client = new OpenAI({ apiKey });
+    const completion = await client.chat.completions.create({
       model: MODEL_NAME,
       messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: inboundMessageText }
+        { role: "system", content: input.systemPrompt },
+        { role: "user", content: input.inboundMessageText }
       ]
     });
 

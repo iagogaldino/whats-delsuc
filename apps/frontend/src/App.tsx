@@ -3,11 +3,12 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { InstanceWorkspacePage } from "./pages/InstanceWorkspacePage";
 import { LoginPage } from "./pages/LoginPage";
 import { SignupPage } from "./pages/SignupPage";
+import { AiSettingsPage } from "./pages/AiSettingsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { getAccessToken, logout } from "./services/api";
 import type { PublicInstance } from "./services/api";
 
-const tabs = ["Dashboard", "Templates"] as const;
+const tabs = ["Dashboard", "Templates", "Chave IA"] as const;
 type Tab = (typeof tabs)[number];
 type AppView = "dashboard" | "instance";
 
@@ -89,6 +90,7 @@ function App() {
           {activeTab === "Dashboard" && view === "instance" && selectedInstance ? (
             <InstanceWorkspacePage
               instance={selectedInstance}
+              onInstanceUpdated={setSelectedInstance}
               onBack={() => {
                 setView("dashboard");
                 setSelectedInstance(null);
@@ -96,6 +98,7 @@ function App() {
             />
           ) : null}
           {activeTab === "Templates" ? <TemplatesPage /> : null}
+          {activeTab === "Chave IA" ? <AiSettingsPage /> : null}
         </main>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { ObjectId } from "mongodb";
+import { ObjectId, type UpdateFilter } from "mongodb";
 import { getMongoDb } from "../lib/mongo.js";
 import { normalizeEmail } from "../lib/normalize-email.js";
 
@@ -63,6 +63,25 @@ export class UserRepository {
     return mapUserDocument(user);
   }
 
+  async updateOpenAiApiKey(userId: string, openaiApiKey: string | undefined): Promise<UserModel | null> {
+    if (!ObjectId.isValid(userId)) {
+      throw new Error("Invalid user id");
+    }
+
+    const filter = { _id: new ObjectId(userId) };
+    const coll = getMongoDb().collection<UserDocument>("users");
+    const update: UpdateFilter<UserDocument> =
+      openaiApiKey === undefined
+        ? { $unset: { openaiApiKey: 1 }, $set: { updatedAt: new Date() } }
+        : { $set: { openaiApiKey, updatedAt: new Date() } };
+
+    const outcome = await coll.updateOne(filter, update);
+    if (outcome.matchedCount === 0) {
+      return null;
+    }
+    return this.findById(userId);
+  }
+
   async updateWhatsAppToken(input: UpdateWhatsAppTokenInput): Promise<void> {
     if (!ObjectId.isValid(input.userId)) {
       throw new Error("Invalid user id");
@@ -91,6 +110,7 @@ type UserDocument = {
   waSessionJwt: string;
   waTokenId?: string;
   waApiToken?: string;
+  openaiApiKey?: string;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -103,6 +123,7 @@ export type UserModel = {
   waSessionJwt: string;
   waTokenId?: string;
   waApiToken?: string;
+  openaiApiKey?: string;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -116,6 +137,7 @@ function mapUserDocument(document: UserDocument): UserModel {
     waSessionJwt: document.waSessionJwt,
     waTokenId: document.waTokenId,
     waApiToken: document.waApiToken,
+    openaiApiKey: document.openaiApiKey,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt
   };

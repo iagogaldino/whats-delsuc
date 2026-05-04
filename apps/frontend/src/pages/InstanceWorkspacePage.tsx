@@ -6,11 +6,12 @@ import type { PublicInstance } from "../services/api";
 type InstanceWorkspacePageProps = {
   instance: PublicInstance;
   onBack: () => void;
+  onInstanceUpdated?: (instance: PublicInstance) => void;
 };
 
 type InstanceFeature = "prompt" | "bulk";
 
-export function InstanceWorkspacePage({ instance, onBack }: InstanceWorkspacePageProps) {
+export function InstanceWorkspacePage({ instance, onBack, onInstanceUpdated }: InstanceWorkspacePageProps) {
   const [selectedFeature, setSelectedFeature] = useState<InstanceFeature | null>(null);
 
   return (
@@ -69,7 +70,11 @@ export function InstanceWorkspacePage({ instance, onBack }: InstanceWorkspacePag
             </div>
           ) : null}
           {selectedFeature === "prompt" ? (
-            <PromptEditorPage instanceId={instance.instanceId} instance={instance} />
+            <PromptEditorPage
+              instanceId={instance.instanceId}
+              instance={instance}
+              onInstanceUpdated={onInstanceUpdated}
+            />
           ) : null}
           {selectedFeature === "bulk" ? <BulkSenderPage instanceId={instance.instanceId} /> : null}
         </section>
