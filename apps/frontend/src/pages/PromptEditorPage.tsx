@@ -3,10 +3,11 @@ import { SectionCard } from "../components/SectionCard";
 import { useSubmitState } from "../hooks/useSubmitState";
 import {
   getTemplateMediaObjectUrl,
+  listMcpServersCatalog,
   listMessageTemplates,
   updateInstanceAutoReply
 } from "../services/api";
-import type { MessageTemplate, PublicInstance } from "../services/api";
+import type { MessageTemplate, McpServerMeta, PublicInstance } from "../services/api";
 
 type PromptEditorPageProps = {
   instanceId?: string;
@@ -29,6 +30,12 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [templateImagePreviewUrl, setTemplateImagePreviewUrl] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [mcpCatalog, setMcpCatalog] = useState<McpServerMeta[]>([]);
+  const [aiMcpEnabled, setAiMcpEnabled] = useState(instance?.aiMcpEnabled ?? false);
+  const [aiMcpAllowedServerIds, setAiMcpAllowedServerIds] = useState<string[]>(
+    instance?.aiMcpAllowedServerIds ?? []
+  );
+  const [aiMcpMaxSteps, setAiMcpMaxSteps] = useState(instance?.aiMcpMaxSteps ?? 4);
   const { loading, message, withSubmit } = useSubmitState();
 
   useEffect(() => {
@@ -38,6 +45,29 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
         setTemplates([]);
       });
   }, []);
+
+  useEffect(() => {
+    void listMcpServersCatalog()
+      .then((items) => setMcpCatalog(items))
+      .catch(() => {
+        setMcpCatalog([]);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!instance) {
+      return;
+    }
+    setSystemPrompt(instance.systemPrompt);
+    setAutoReplyEnabled(instance.autoReplyEnabled);
+    setAutoReplyMode(instance.autoReplyMode);
+    setFixedReplyMessage(instance.fixedReplyMessage);
+    setFixedReplyTemplateId(instance.fixedReplyTemplateId ?? "");
+    setAutoReplyAllowedNumbersInput((instance.autoReplyAllowedNumbers ?? []).join("\n"));
+    setAiMcpEnabled(instance.aiMcpEnabled);
+    setAiMcpAllowedServerIds([...instance.aiMcpAllowedServerIds]);
+    setAiMcpMaxSteps(instance.aiMcpMaxSteps);
+  }, [instance]);
 
   useEffect(() => {
     const selected = templates.find((item) => item.id === fixedReplyTemplateId);
@@ -108,6 +138,10 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
             setValidationError("Informe o prompt da IA para esse modo.");
             return;
           }
+          if (autoReplyMode === "ai" && aiMcpEnabled && mcpCatalog.length > 0 && aiMcpAllowedServerIds.length === 0) {
+            setValidationError("Selecione ao menos um servidor MCP permitido.");
+            return;
+          }
           setValidationError(null);
           const autoReplyAllowedNumbers = autoReplyAllowedNumbersInput
             .split(/[\n,;]+/)
@@ -121,7 +155,10 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
                 fixedReplyMessage,
                 fixedReplyTemplateId: fixedReplyTemplateId || undefined,
                 autoReplyAllowedNumbers,
-                systemPrompt
+                systemPrompt,
+                aiMcpEnabled,
+                aiMcpAllowedServerIds,
+                aiMcpMaxSteps
               }).then((updated) => {
                 onInstanceUpdated?.(updated);
               }),
@@ -158,6 +195,73 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
             A chave da API OpenAI é única para a sua conta e vale para todas as instâncias. Configure em{" "}
             <span className="font-medium text-slate-300">Chave IA</span> na barra lateral.
           </p>
+        ) : null}
+        {autoReplyMode === "ai" ? (
+          <div className="space-y-2 rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-3">
+            <label className="flex items-center gap-2 text-sm text-slate-200">
+              <input
+                type="checkbox"
+                checked={aiMcpEnabled}
+                disabled={mcpCatalog.length === 0 || loading}
+                onChange={(event) => setAiMcpEnabled(event.target.checked)}
+              />
+              Permitir ferramentas MCP na auto-resposta
+            </label>
+            {mcpCatalog.length === 0 ? (
+              <p className="text-xs text-amber-400">
+                Nenhum servidor MCP disponível. O administrador precisa definir{" "}
+                <code className="text-slate-300">MCP_SERVERS_JSON</code> no backend.
+              </p>
+            ) : (
+              <p className="text-xs text-slate-400">
+                As ferramentas expostas dependem de cada servidor configurado. Escolha quais processos MCP esta
+                instância pode usar.
+              </p>
+            )}
+            {aiMcpEnabled && mcpCatalog.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-slate-300">Servidores permitidos</p>
+                <div className="flex flex-col gap-2">
+                  {mcpCatalog.map((server) => (
+                    <label key={server.id} className="flex items-center gap-2 text-sm text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={aiMcpAllowedServerIds.includes(server.id)}
+                        disabled={loading}
+                        onChange={() => {
+                          setAiMcpAllowedServerIds((previous) =>
+                            previous.includes(server.id)
+                              ? previous.filter((id) => id !== server.id)
+                              : [...previous, server.id]
+                          );
+                        }}
+                      />
+                      <span>{server.name}</span>
+                      <span className="text-xs text-slate-500">({server.id})</span>
+                    </label>
+                  ))}
+                </div>
+                <label className="block space-y-1 text-sm text-slate-300">
+                  <span>Máximo de rodadas com ferramentas (1–10)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    className="w-full max-w-xs rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
+                    value={aiMcpMaxSteps}
+                    disabled={loading}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      if (Number.isNaN(next)) {
+                        return;
+                      }
+                      setAiMcpMaxSteps(Math.min(10, Math.max(1, next)));
+                    }}
+                  />
+                </label>
+              </div>
+            ) : null}
+          </div>
         ) : null}
         <label className="block space-y-1 text-sm text-slate-300">
           <span>Responder automaticamente apenas para estes numeros (opcional)</span>

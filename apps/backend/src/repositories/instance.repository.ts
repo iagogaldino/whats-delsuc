@@ -19,6 +19,9 @@ type UpdateAutoReplyInput = {
   fixedReplyTemplateId?: string;
   autoReplyAllowedNumbers: string[];
   systemPrompt: string;
+  aiMcpEnabled: boolean;
+  aiMcpAllowedServerIds: string[];
+  aiMcpMaxSteps: number;
 };
 
 export class InstanceRepository {
@@ -74,6 +77,9 @@ export class InstanceRepository {
           autoReplyMode: "ai",
           fixedReplyMessage: "",
           autoReplyAllowedNumbers: [],
+          aiMcpEnabled: false,
+          aiMcpAllowedServerIds: [],
+          aiMcpMaxSteps: 4,
           createdAt: now
         }
       },
@@ -104,8 +110,11 @@ export class InstanceRepository {
             autoReplyMode: input.autoReplyMode,
             fixedReplyMessage: input.fixedReplyMessage,
             fixedReplyTemplateId: input.fixedReplyTemplateId,
-          autoReplyAllowedNumbers: input.autoReplyAllowedNumbers,
+            autoReplyAllowedNumbers: input.autoReplyAllowedNumbers,
             systemPrompt: input.systemPrompt,
+            aiMcpEnabled: input.aiMcpEnabled,
+            aiMcpAllowedServerIds: input.aiMcpAllowedServerIds,
+            aiMcpMaxSteps: input.aiMcpMaxSteps,
             updatedAt: new Date()
           }
         },
@@ -127,6 +136,9 @@ type WhatsappInstanceDocument = {
   fixedReplyMessage?: string;
   fixedReplyTemplateId?: string;
   autoReplyAllowedNumbers?: string[];
+  aiMcpEnabled?: boolean;
+  aiMcpAllowedServerIds?: string[];
+  aiMcpMaxSteps?: number;
   displayName?: string;
   status: "CONNECTED" | "DISCONNECTED";
   createdAt: Date;
@@ -144,6 +156,9 @@ export type WhatsappInstanceModel = {
   fixedReplyMessage: string;
   fixedReplyTemplateId?: string;
   autoReplyAllowedNumbers: string[];
+  aiMcpEnabled: boolean;
+  aiMcpAllowedServerIds: string[];
+  aiMcpMaxSteps: number;
   displayName?: string;
   status: "CONNECTED" | "DISCONNECTED";
   createdAt: Date;
@@ -162,6 +177,9 @@ function mapInstanceDocument(document: WhatsappInstanceDocument): WhatsappInstan
     fixedReplyMessage: document.fixedReplyMessage ?? "",
     fixedReplyTemplateId: document.fixedReplyTemplateId,
     autoReplyAllowedNumbers: document.autoReplyAllowedNumbers ?? [],
+    aiMcpEnabled: document.aiMcpEnabled ?? false,
+    aiMcpAllowedServerIds: document.aiMcpAllowedServerIds ?? [],
+    aiMcpMaxSteps: document.aiMcpMaxSteps ?? 4,
     displayName: document.displayName,
     status: document.status,
     createdAt: document.createdAt,

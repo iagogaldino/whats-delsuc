@@ -21,6 +21,18 @@ type UpdateWhatsAppTokenInput = {
   waApiToken: string;
 };
 
+export type UserMcpServer = {
+  id: string;
+  name: string;
+  transport: "stdio" | "http";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+};
+
 export class UserRepository {
   async findByEmail(email: string): Promise<UserModel | null> {
     const norm = normalizeEmail(email);
@@ -100,6 +112,29 @@ export class UserRepository {
         }
       );
   }
+
+  async updateMcpServers(userId: string, mcpServers: UserMcpServer[]): Promise<UserModel | null> {
+    if (!ObjectId.isValid(userId)) {
+      throw new Error("Invalid user id");
+    }
+
+    const outcome = await getMongoDb()
+      .collection<UserDocument>("users")
+      .updateOne(
+        { _id: new ObjectId(userId) },
+        {
+          $set: {
+            mcpServers,
+            updatedAt: new Date()
+          }
+        }
+      );
+
+    if (outcome.matchedCount === 0) {
+      return null;
+    }
+    return this.findById(userId);
+  }
 }
 
 type UserDocument = {
@@ -111,6 +146,7 @@ type UserDocument = {
   waTokenId?: string;
   waApiToken?: string;
   openaiApiKey?: string;
+  mcpServers?: UserMcpServer[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -124,6 +160,7 @@ export type UserModel = {
   waTokenId?: string;
   waApiToken?: string;
   openaiApiKey?: string;
+  mcpServers: UserMcpServer[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -138,6 +175,7 @@ function mapUserDocument(document: UserDocument): UserModel {
     waTokenId: document.waTokenId,
     waApiToken: document.waApiToken,
     openaiApiKey: document.openaiApiKey,
+    mcpServers: document.mcpServers ?? [],
     createdAt: document.createdAt,
     updatedAt: document.updatedAt
   };

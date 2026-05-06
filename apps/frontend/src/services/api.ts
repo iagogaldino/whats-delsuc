@@ -23,6 +23,9 @@ export type PublicInstance = {
   fixedReplyTemplateId?: string;
   autoReplyAllowedNumbers: string[];
   systemPrompt: string;
+  aiMcpEnabled: boolean;
+  aiMcpAllowedServerIds: string[];
+  aiMcpMaxSteps: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -223,6 +226,9 @@ export async function updateInstanceAutoReply(
     fixedReplyTemplateId?: string;
     autoReplyAllowedNumbers?: string[];
     systemPrompt?: string;
+    aiMcpEnabled?: boolean;
+    aiMcpAllowedServerIds?: string[];
+    aiMcpMaxSteps?: number;
   }
 ): Promise<PublicInstance> {
   const response = await fetch(`${API_BASE_URL}/instances/${instanceId}/auto-reply`, {
@@ -277,6 +283,94 @@ export async function updateOpenAiSettings(
   }
 
   return response.json() as Promise<OpenAiSettings>;
+}
+
+export type McpServerMeta = {
+  id: string;
+  name: string;
+};
+
+export type McpServerConfig = McpServerMeta & {
+  transport: "stdio" | "http";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+};
+
+export type McpServerTestResult = {
+  ok: boolean;
+  toolCount: number;
+  toolNames: string[];
+};
+
+export async function listMcpServersCatalog(): Promise<McpServerMeta[]> {
+  const response = await fetch(`${API_BASE_URL}/settings/mcp-servers`, {
+    method: "GET",
+    headers: {
+      ...authHeadersAsObject()
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  const payload = (await response.json()) as { items: McpServerMeta[] };
+  return payload.items;
+}
+
+export async function getMcpServersConfig(): Promise<McpServerConfig[]> {
+  const response = await fetch(`${API_BASE_URL}/settings/mcp-servers/config`, {
+    method: "GET",
+    headers: {
+      ...authHeadersAsObject()
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  const payload = (await response.json()) as { items: McpServerConfig[] };
+  return payload.items;
+}
+
+export async function updateMcpServersConfig(items: McpServerConfig[]): Promise<McpServerConfig[]> {
+  const response = await fetch(`${API_BASE_URL}/settings/mcp-servers/config`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeadersAsObject()
+    },
+    body: JSON.stringify({ items })
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  const payload = (await response.json()) as { items: McpServerConfig[] };
+  return payload.items;
+}
+
+export async function testMcpServerConfig(server: McpServerConfig): Promise<McpServerTestResult> {
+  const response = await fetch(`${API_BASE_URL}/settings/mcp-servers/test`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeadersAsObject()
+    },
+    body: JSON.stringify({ server })
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return (await response.json()) as McpServerTestResult;
 }
 
 export async function listMessageTemplates(): Promise<MessageTemplate[]> {

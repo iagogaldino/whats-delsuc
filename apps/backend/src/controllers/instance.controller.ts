@@ -17,7 +17,10 @@ const updateAutoReplySchema = z
     fixedReplyMessage: z.string().trim().optional(),
     fixedReplyTemplateId: z.string().trim().optional(),
     autoReplyAllowedNumbers: z.array(z.string().trim().min(1)).optional(),
-    systemPrompt: z.string().trim().optional()
+    systemPrompt: z.string().trim().optional(),
+    aiMcpEnabled: z.boolean().optional(),
+    aiMcpAllowedServerIds: z.array(z.string().trim().min(1)).optional(),
+    aiMcpMaxSteps: z.coerce.number().int().min(1).max(10).optional()
   })
   .superRefine((data, ctx) => {
     const hasFixedMessage = Boolean(data.fixedReplyMessage && data.fixedReplyMessage.length > 0);
@@ -77,6 +80,9 @@ function toPublicInstance(inst: WhatsappInstanceModel) {
     fixedReplyTemplateId: inst.fixedReplyTemplateId,
     autoReplyAllowedNumbers: inst.autoReplyAllowedNumbers,
     systemPrompt: inst.systemPrompt,
+    aiMcpEnabled: inst.aiMcpEnabled,
+    aiMcpAllowedServerIds: inst.aiMcpAllowedServerIds,
+    aiMcpMaxSteps: inst.aiMcpMaxSteps,
     createdAt: inst.createdAt.toISOString(),
     updatedAt: inst.updatedAt.toISOString()
   };
@@ -286,6 +292,31 @@ export async function updateInstanceAutoReplyController(
   const fixedReplyTemplateId = parsedBody.data.fixedReplyTemplateId?.trim() || undefined;
   const autoReplyAllowedNumbers = (parsedBody.data.autoReplyAllowedNumbers ?? []).map((item) => item.trim());
   const systemPrompt = (parsedBody.data.systemPrompt ?? instance.systemPrompt).trim();
+  const aiMcpEnabled = parsedBody.data.aiMcpEnabled ?? instance.aiMcpEnabled;
+  const aiMcpAllowedServerIds = parsedBody.data.aiMcpAllowedServerIds ?? instance.aiMcpAllowedServerIds;
+  const aiMcpMaxSteps = Math.min(
+    10,
+    Math.max(1, parsedBody.data.aiMcpMaxSteps ?? instance.aiMcpMaxSteps)
+  );
+
+  if (parsedBody.data.autoReplyMode === "ai" && aiMcpEnabled) {
+    const catalog = user.mcpServers;
+    if (catalog.length === 0) {
+      return reply
+        .status(400)
+        .send({ error: "MCP não está configurado no servidor (defina MCP_SERVERS_JSON)." });
+    }
+    if (aiMcpAllowedServerIds.length === 0) {
+      return reply.status(400).send({ error: "Selecione ao menos um servidor MCP permitido." });
+    }
+    const knownIds = new Set(catalog.map((entry) => entry.id));
+    const unknown = aiMcpAllowedServerIds.filter((id) => !knownIds.has(id));
+    if (unknown.length > 0) {
+      return reply.status(400).send({
+        error: `Servidor(es) MCP desconhecido(s): ${unknown.join(", ")}`
+      });
+    }
+  }
 
   if (parsedBody.data.autoReplyEnabled) {
     try {
@@ -310,7 +341,10 @@ export async function updateInstanceAutoReplyController(
     fixedReplyMessage,
     fixedReplyTemplateId,
     autoReplyAllowedNumbers,
-    systemPrompt
+    systemPrompt,
+    aiMcpEnabled,
+    aiMcpAllowedServerIds,
+    aiMcpMaxSteps
   });
 
   if (!updated) {
