@@ -22,6 +22,7 @@ export class AIService {
     mcp?: {
       enabled: boolean;
       allowedServerIds: string[];
+      allowedToolKeys?: string[];
       maxSteps: number;
       servers: UserMcpServer[];
     };
@@ -38,7 +39,11 @@ export class AIService {
       const mcpService = new McpClientService();
       let bundle: McpToolBundle | null = null;
       try {
-        bundle = await mcpService.createToolBundle(mcp.allowedServerIds, mcp.servers);
+        bundle = await mcpService.createToolBundle(
+          mcp.allowedServerIds,
+          mcp.servers,
+          mcp.allowedToolKeys
+        );
       } catch {
         bundle = null;
       }

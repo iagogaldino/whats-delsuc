@@ -17,8 +17,7 @@ export function SignupPage({ onSignedUp, onSwitchToLogin }: SignupPageProps) {
     <div className="mx-auto w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-6">
       <h2 className="text-2xl font-bold text-slate-100">Cadastro</h2>
       <p className="mt-1 text-sm text-slate-400">
-        O servidor usa as credenciais do WhatsAppConnect configuradas na aplicacao (.env) para gerar o
-        token `otp_...` automaticamente ao cadastrar.
+        Crie sua conta para começar a conectar e gerenciar seus atendimentos.
       </p>
       <form
         className="mt-5 space-y-3"

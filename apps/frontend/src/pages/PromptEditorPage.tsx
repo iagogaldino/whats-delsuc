@@ -5,9 +5,10 @@ import {
   getTemplateMediaObjectUrl,
   listMcpServersCatalog,
   listMessageTemplates,
+  scanInstanceMcpTools,
   updateInstanceAutoReply
 } from "../services/api";
-import type { MessageTemplate, McpServerMeta, PublicInstance } from "../services/api";
+import type { MessageTemplate, McpScanServerResult, McpServerMeta, PublicInstance } from "../services/api";
 
 type PromptEditorPageProps = {
   instanceId?: string;
@@ -35,8 +36,70 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
   const [aiMcpAllowedServerIds, setAiMcpAllowedServerIds] = useState<string[]>(
     instance?.aiMcpAllowedServerIds ?? []
   );
+  const [aiMcpAllowedToolKeys, setAiMcpAllowedToolKeys] = useState<string[]>(
+    instance?.aiMcpAllowedToolKeys ?? []
+  );
+  const [mcpScanResult, setMcpScanResult] = useState<McpScanServerResult[] | null>(null);
+  const [mcpScanLoading, setMcpScanLoading] = useState(false);
+  const [mcpScanMessage, setMcpScanMessage] = useState<string | null>(null);
   const [aiMcpMaxSteps, setAiMcpMaxSteps] = useState(instance?.aiMcpMaxSteps ?? 4);
   const { loading, message, withSubmit } = useSubmitState();
+
+  function allPrefixedKeysFromScan(servers: McpScanServerResult[]): string[] {
+    return servers.flatMap((s) => s.tools.map((t) => t.prefixedKey));
+  }
+
+  function isMcpToolChecked(prefixedKey: string): boolean {
+    if (aiMcpAllowedToolKeys.length === 0) {
+      return true;
+    }
+    return aiMcpAllowedToolKeys.includes(prefixedKey);
+  }
+
+  function setToolKeyChecked(prefixedKey: string, checked: boolean): void {
+    const allKeys = mcpScanResult ? allPrefixedKeysFromScan(mcpScanResult) : [];
+    setAiMcpAllowedToolKeys((prev) => {
+      if (prev.length === 0 && !checked) {
+        return allKeys.filter((k) => k !== prefixedKey);
+      }
+      if (checked) {
+        if (prev.includes(prefixedKey)) {
+          return prev;
+        }
+        const next = [...prev, prefixedKey];
+        if (allKeys.length > 0 && next.length === allKeys.length) {
+          return [];
+        }
+        return next;
+      }
+      return prev.filter((k) => k !== prefixedKey);
+    });
+  }
+
+  function selectAllToolsForServer(server: McpScanServerResult): void {
+    const serverKeys = server.tools.map((t) => t.prefixedKey);
+    const allKeys = mcpScanResult ? allPrefixedKeysFromScan(mcpScanResult) : [];
+    setAiMcpAllowedToolKeys((prev) => {
+      if (prev.length === 0) {
+        return [];
+      }
+      const merged = new Set([...prev, ...serverKeys]);
+      const next = [...merged];
+      if (allKeys.length > 0 && next.length === allKeys.length) {
+        return [];
+      }
+      return next;
+    });
+  }
+
+  function deselectAllToolsForServer(server: McpScanServerResult): void {
+    const serverKeys = new Set(server.tools.map((t) => t.prefixedKey));
+    const allKeys = mcpScanResult ? allPrefixedKeysFromScan(mcpScanResult) : [];
+    setAiMcpAllowedToolKeys((prev) => {
+      const base = prev.length === 0 ? allKeys : prev;
+      return base.filter((k) => !serverKeys.has(k));
+    });
+  }
 
   useEffect(() => {
     void listMessageTemplates()
@@ -66,6 +129,7 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
     setAutoReplyAllowedNumbersInput((instance.autoReplyAllowedNumbers ?? []).join("\n"));
     setAiMcpEnabled(instance.aiMcpEnabled);
     setAiMcpAllowedServerIds([...instance.aiMcpAllowedServerIds]);
+    setAiMcpAllowedToolKeys([...instance.aiMcpAllowedToolKeys]);
     setAiMcpMaxSteps(instance.aiMcpMaxSteps);
   }, [instance]);
 
@@ -120,7 +184,7 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
   return (
     <SectionCard
       title="Auto resposta"
-      subtitle="Defina a personalidade da IA que sera usada no webhook de auto-resposta."
+      subtitle="Defina como as respostas automáticas devem funcionar para esta instância."
     >
       <form
         className="space-y-3"
@@ -139,7 +203,7 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
             return;
           }
           if (autoReplyMode === "ai" && aiMcpEnabled && mcpCatalog.length > 0 && aiMcpAllowedServerIds.length === 0) {
-            setValidationError("Selecione ao menos um servidor MCP permitido.");
+            setValidationError("Selecione ao menos uma integração permitida.");
             return;
           }
           setValidationError(null);
@@ -158,6 +222,7 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
                 systemPrompt,
                 aiMcpEnabled,
                 aiMcpAllowedServerIds,
+                aiMcpAllowedToolKeys,
                 aiMcpMaxSteps
               }).then((updated) => {
                 onInstanceUpdated?.(updated);
@@ -192,7 +257,7 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
         </label>
         {autoReplyMode === "ai" ? (
           <p className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2 text-xs text-slate-400">
-            A chave da API OpenAI é única para a sua conta e vale para todas as instâncias. Configure em{" "}
+            A chave da IA é única para a sua conta e vale para todas as instâncias. Configure em{" "}
             <span className="font-medium text-slate-300">Chave IA</span> na barra lateral.
           </p>
         ) : null}
@@ -205,22 +270,21 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
                 disabled={mcpCatalog.length === 0 || loading}
                 onChange={(event) => setAiMcpEnabled(event.target.checked)}
               />
-              Permitir ferramentas MCP na auto-resposta
+              Permitir integrações na auto-resposta
             </label>
             {mcpCatalog.length === 0 ? (
               <p className="text-xs text-amber-400">
-                Nenhum servidor MCP disponível. O administrador precisa definir{" "}
-                <code className="text-slate-300">MCP_SERVERS_JSON</code> no backend.
+                Nenhuma integração cadastrada na conta. Configure em{" "}
+                <span className="font-medium text-slate-300">Integracoes IA</span> no menu lateral.
               </p>
             ) : (
               <p className="text-xs text-slate-400">
-                As ferramentas expostas dependem de cada servidor configurado. Escolha quais processos MCP esta
-                instância pode usar.
+                Escolha quais integrações esta instância pode usar nas respostas automáticas.
               </p>
             )}
             {aiMcpEnabled && mcpCatalog.length > 0 ? (
               <div className="space-y-2">
-                <p className="text-xs font-medium text-slate-300">Servidores permitidos</p>
+                <p className="text-xs font-medium text-slate-300">Integrações permitidas</p>
                 <div className="flex flex-col gap-2">
                   {mcpCatalog.map((server) => (
                     <label key={server.id} className="flex items-center gap-2 text-sm text-slate-300">
@@ -237,12 +301,11 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
                         }}
                       />
                       <span>{server.name}</span>
-                      <span className="text-xs text-slate-500">({server.id})</span>
                     </label>
                   ))}
                 </div>
                 <label className="block space-y-1 text-sm text-slate-300">
-                  <span>Máximo de rodadas com ferramentas (1–10)</span>
+                  <span>Nível de uso das integrações (1–10)</span>
                   <input
                     type="number"
                     min={1}
@@ -259,6 +322,100 @@ export function PromptEditorPage({ instanceId: fixedInstanceId, instance, onInst
                     }}
                   />
                 </label>
+                <div className="space-y-2 border-t border-slate-700/60 pt-3">
+                  <p className="text-xs text-slate-400">
+                    Se não marcar opções específicas, todas as opções das integrações selecionadas serão usadas.
+                  </p>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+                    disabled={
+                      loading ||
+                      mcpScanLoading ||
+                      !fixedInstanceId ||
+                      aiMcpAllowedServerIds.length === 0
+                    }
+                    onClick={() => {
+                      if (!fixedInstanceId || aiMcpAllowedServerIds.length === 0) {
+                        return;
+                      }
+                      setMcpScanLoading(true);
+                      setMcpScanMessage(null);
+                      void scanInstanceMcpTools(fixedInstanceId, aiMcpAllowedServerIds)
+                        .then((result) => {
+                          setMcpScanResult(result.servers);
+                          setMcpScanMessage(null);
+                        })
+                        .catch((error: unknown) => {
+                          setMcpScanMessage(error instanceof Error ? error.message : "Falha ao carregar opções.");
+                        })
+                        .finally(() => {
+                          setMcpScanLoading(false);
+                        });
+                    }}
+                  >
+                    {mcpScanLoading ? "Carregando..." : "Carregar opções"}
+                  </button>
+                  {mcpScanMessage ? <p className="text-xs text-red-300">{mcpScanMessage}</p> : null}
+                  {mcpScanResult && mcpScanResult.length > 0 ? (
+                    <div className="space-y-4">
+                      {mcpScanResult.map((server) => (
+                        <div key={server.id} className="rounded-md border border-slate-700/80 bg-slate-950/50 p-2">
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs font-medium text-slate-300">
+                              {server.name}
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className="text-xs text-blue-400 hover:underline"
+                                onClick={() => selectAllToolsForServer(server)}
+                              >
+                                Marcar todas
+                              </button>
+                              <button
+                                type="button"
+                                className="text-xs text-slate-400 hover:underline"
+                                onClick={() => deselectAllToolsForServer(server)}
+                              >
+                                Desmarcar todas
+                              </button>
+                            </div>
+                          </div>
+                          {server.tools.length === 0 ? (
+                            <p className="text-xs text-slate-500">Nenhuma opção disponível.</p>
+                          ) : (
+                            <ul className="space-y-2">
+                              {server.tools.map((tool) => (
+                                <li key={tool.prefixedKey}>
+                                  <label className="flex cursor-pointer gap-2 text-sm text-slate-300">
+                                    <input
+                                      type="checkbox"
+                                      className="mt-0.5 shrink-0"
+                                      checked={isMcpToolChecked(tool.prefixedKey)}
+                                      disabled={loading}
+                                      onChange={(event) =>
+                                        setToolKeyChecked(tool.prefixedKey, event.target.checked)
+                                      }
+                                    />
+                                    <span className="min-w-0 flex-1">
+                                      <span className="font-medium text-slate-200">{tool.name}</span>
+                                      {tool.description ? (
+                                        <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                                          {tool.description}
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                  </label>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>

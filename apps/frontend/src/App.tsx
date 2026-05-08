@@ -4,11 +4,12 @@ import { InstanceWorkspacePage } from "./pages/InstanceWorkspacePage";
 import { LoginPage } from "./pages/LoginPage";
 import { SignupPage } from "./pages/SignupPage";
 import { AiSettingsPage } from "./pages/AiSettingsPage";
+import { McpServersPage } from "./pages/McpServersPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { getAccessToken, logout } from "./services/api";
 import type { PublicInstance } from "./services/api";
 
-const tabs = ["Dashboard", "Templates", "Chave IA"] as const;
+const tabs = ["Dashboard", "Templates", "Chave IA", "Integracoes IA"] as const;
 type Tab = (typeof tabs)[number];
 type AppView = "dashboard" | "instance";
 
@@ -99,6 +100,7 @@ function App() {
           ) : null}
           {activeTab === "Templates" ? <TemplatesPage /> : null}
           {activeTab === "Chave IA" ? <AiSettingsPage /> : null}
+          {activeTab === "Integracoes IA" ? <McpServersPage /> : null}
         </main>
       </div>
     </div>

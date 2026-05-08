@@ -3,6 +3,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { env } from "../lib/env.js";
 import { AIService } from "../services/ai.service.js";
+import type { ConversationMessageItem } from "../services/whatsapp.service.js";
 import { WhatsappService } from "../services/whatsapp.service.js";
 import { InstanceRepository } from "../repositories/instance.repository.js";
 import { UserRepository } from "../repositories/user.repository.js";
@@ -79,6 +80,30 @@ function serializeForLog(value: unknown): string {
   } catch {
     return "\"[unserializable]\"";
   }
+}
+
+function formatConversationContext(items: ConversationMessageItem[]): string {
+  const sorted = [...items].sort((a, b) => {
+    const aTime = Number.isNaN(Date.parse(a.timestamp)) ? 0 : Date.parse(a.timestamp);
+    const bTime = Number.isNaN(Date.parse(b.timestamp)) ? 0 : Date.parse(b.timestamp);
+    return aTime - bTime;
+  });
+
+  const lines = sorted.map((item) => {
+    const side = item.fromMe ? "ASSISTENTE" : "CLIENTE";
+    const baseText = item.text?.trim().length ? item.text.trim() : "[mensagem sem texto]";
+    const mediaSuffix =
+      item.mediaUrl || item.mediaMimeType || item.mediaFileName
+        ? ` [midia${item.mediaMimeType ? ` ${item.mediaMimeType}` : ""}${item.mediaFileName ? ` ${item.mediaFileName}` : ""}]`
+        : "";
+    return `${side}: ${baseText}${mediaSuffix}`;
+  });
+
+  if (lines.length === 0) {
+    return "";
+  }
+
+  return lines.join("\n");
 }
 
 async function writeWebhookFlowLog(
@@ -287,13 +312,42 @@ export async function whatsappWebhookController(
       aiMcpMaxSteps: instance.aiMcpMaxSteps
     });
     const owner = await userRepository.findById(instance.userId);
+    let conversationContext = "";
+    try {
+      const page = await whatsappService.getConversationMessages({
+        instanceId: instance.instanceId,
+        token: instance.token,
+        jidOrNumber: customerNumber,
+        limit: 20
+      });
+      conversationContext = formatConversationContext(page.items);
+      await writeWebhookFlowLog(flowId, "conversation-context-loaded", {
+        itemCount: page.items.length,
+        hasNextCursor: Boolean(page.nextCursor)
+      });
+    } catch (error) {
+      await writeWebhookFlowLog(flowId, "conversation-context-load-failed", {
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    const aiInboundInput = conversationContext
+      ? [
+          "Historico recente da conversa (ordem cronologica):",
+          conversationContext,
+          "",
+          `Ultima mensagem do cliente: ${inboundMessageText}`
+        ].join("\n")
+      : inboundMessageText;
+
     outboundMessage = await aiService.generateReply({
       userOpenAiApiKey: owner?.openaiApiKey,
       systemPrompt: instance.systemPrompt,
-      inboundMessageText,
+      inboundMessageText: aiInboundInput,
       mcp: {
         enabled: instance.aiMcpEnabled,
         allowedServerIds: instance.aiMcpAllowedServerIds,
+        allowedToolKeys: instance.aiMcpAllowedToolKeys,
         maxSteps: instance.aiMcpMaxSteps,
         servers: owner?.mcpServers ?? []
       }

@@ -4,7 +4,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { ChatCompletionTool } from "openai/resources/chat/completions/completions";
 import type { UserMcpServer } from "../repositories/user.repository.js";
 
-const TOOL_NAME_SEPARATOR = "__";
+export const MCP_TOOL_NAME_SEPARATOR = "__";
 
 const LIST_TOOLS_TIMEOUT_MS = 30_000;
 const CALL_TOOL_TIMEOUT_MS = 60_000;
@@ -35,6 +35,18 @@ export type McpServerTestResult = {
   ok: boolean;
   toolCount: number;
   toolNames: string[];
+};
+
+export type McpScannedToolInfo = {
+  name: string;
+  description?: string;
+  prefixedKey: string;
+};
+
+export type McpScanServerResult = {
+  id: string;
+  name: string;
+  tools: McpScannedToolInfo[];
 };
 
 function mergeProcessEnv(override?: Record<string, string>): Record<string, string> | undefined {
@@ -161,17 +173,99 @@ async function listAllTools(client: Client): Promise<
   return tools;
 }
 
+function buildAllowedToolKeyFilter(
+  allowedServerIds: string[],
+  allowedToolKeys: string[] | undefined
+): Set<string> | null {
+  if (!allowedToolKeys || allowedToolKeys.length === 0) {
+    return null;
+  }
+  const idSet = new Set(allowedServerIds);
+  return new Set(
+    allowedToolKeys.filter((key) => {
+      const sepIndex = key.indexOf(MCP_TOOL_NAME_SEPARATOR);
+      if (sepIndex <= 0) {
+        return false;
+      }
+      const serverId = key.slice(0, sepIndex);
+      return idSet.has(serverId);
+    })
+  );
+}
+
 export class McpClientService {
+  /**
+   * Lista tools de cada servidor (HTTP REST ou MCP SDK), com chave prefixada `serverId__toolName`.
+   * Conexões stdio são abertas e fechadas por servidor.
+   */
+  async listToolsForServers(allowedServerIds: string[], catalog: UserMcpServer[]): Promise<McpScanServerResult[]> {
+    if (catalog.length === 0 || allowedServerIds.length === 0) {
+      return [];
+    }
+
+    const idSet = new Set(allowedServerIds);
+    const results: McpScanServerResult[] = [];
+
+    for (const entry of catalog) {
+      if (!idSet.has(entry.id)) {
+        continue;
+      }
+
+      if (entry.transport === "http") {
+        const tools = await listHttpRestTools(entry);
+        results.push({
+          id: entry.id,
+          name: entry.name,
+          tools: tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            prefixedKey: `${entry.id}${MCP_TOOL_NAME_SEPARATOR}${tool.name}`
+          }))
+        });
+        continue;
+      }
+
+      const sessions: ConnectedSession[] = [];
+      try {
+        const transport = buildTransport(entry);
+        const client = new Client({ name: "whatsdelsuc", version: "1.0.0" });
+        await client.connect(transport);
+        sessions.push({ serverId: entry.id, entry, client, transport });
+
+        const tools = await listAllTools(client);
+        results.push({
+          id: entry.id,
+          name: entry.name,
+          tools: tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            prefixedKey: `${entry.id}${MCP_TOOL_NAME_SEPARATOR}${tool.name}`
+          }))
+        });
+      } finally {
+        await this.closeSessions(sessions);
+      }
+    }
+
+    return results;
+  }
+
   /**
    * Conecta aos servidores stdio permitidos, agrega tools com nome prefixado `serverId__toolName`
    * e retorna um bundle que deve ser fechado após o uso (fecha processos filhos).
+   * Se `allowedToolKeys` for não vazio, só inclui essas chaves (válidas para `allowedServerIds`).
    */
-  async createToolBundle(allowedServerIds: string[], catalog: UserMcpServer[]): Promise<McpToolBundle | null> {
+  async createToolBundle(
+    allowedServerIds: string[],
+    catalog: UserMcpServer[],
+    allowedToolKeys?: string[]
+  ): Promise<McpToolBundle | null> {
     if (catalog.length === 0 || allowedServerIds.length === 0) {
       return null;
     }
 
     const idSet = new Set(allowedServerIds);
+    const keyFilter = buildAllowedToolKeyFilter(allowedServerIds, allowedToolKeys);
     const sessions: ConnectedSession[] = [];
     const prefixMap = new Map<
       string,
@@ -188,7 +282,10 @@ export class McpClientService {
         if (entry.transport === "http") {
           const tools = await listHttpRestTools(entry);
           for (const tool of tools) {
-            const prefixedName = `${entry.id}${TOOL_NAME_SEPARATOR}${tool.name}`;
+            const prefixedName = `${entry.id}${MCP_TOOL_NAME_SEPARATOR}${tool.name}`;
+            if (keyFilter && !keyFilter.has(prefixedName)) {
+              continue;
+            }
             prefixMap.set(prefixedName, { kind: "http-rest", server: entry, toolName: tool.name });
             openAiTools.push({
               type: "function",
@@ -214,7 +311,10 @@ export class McpClientService {
 
         const tools = await listAllTools(client);
         for (const tool of tools) {
-          const prefixedName = `${entry.id}${TOOL_NAME_SEPARATOR}${tool.name}`;
+          const prefixedName = `${entry.id}${MCP_TOOL_NAME_SEPARATOR}${tool.name}`;
+          if (keyFilter && !keyFilter.has(prefixedName)) {
+            continue;
+          }
           prefixMap.set(prefixedName, { kind: "mcp", client, toolName: tool.name });
           openAiTools.push({
             type: "function",

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { SectionCard } from "../components/SectionCard";
-import { createInstance, deleteInstance, listInstances, startInstance } from "../services/api";
+import {
+  createInstance,
+  deleteInstance,
+  listInstances,
+  startInstance
+} from "../services/api";
 import type { PublicInstance } from "../services/api";
 
 const QR_REFRESH_SECONDS = 25;
