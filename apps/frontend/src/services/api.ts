@@ -25,6 +25,7 @@ export type PublicInstance = {
   systemPrompt: string;
   aiMcpEnabled: boolean;
   aiMcpAllowedServerIds: string[];
+  aiMcpAllowedToolKeys: string[];
   aiMcpMaxSteps: number;
   createdAt: string;
   updatedAt: string;
@@ -206,6 +207,19 @@ export async function startInstance(
   return response.json() as Promise<{ instanceId: string; qrCode?: string; connected?: boolean }>;
 }
 
+export async function deleteInstance(instanceId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/instances/${instanceId}`, {
+    method: "DELETE",
+    headers: {
+      ...authHeadersAsObject()
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+}
+
 export async function updatePrompt(instanceId: string, systemPrompt: string): Promise<void> {
   await fetch(`${API_BASE_URL}/instances/${instanceId}/prompt`, {
     method: "PUT",
@@ -228,6 +242,7 @@ export async function updateInstanceAutoReply(
     systemPrompt?: string;
     aiMcpEnabled?: boolean;
     aiMcpAllowedServerIds?: string[];
+    aiMcpAllowedToolKeys?: string[];
     aiMcpMaxSteps?: number;
   }
 ): Promise<PublicInstance> {
@@ -245,6 +260,38 @@ export async function updateInstanceAutoReply(
   }
 
   return response.json() as Promise<PublicInstance>;
+}
+
+export type McpScannedToolInfo = {
+  name: string;
+  description?: string;
+  prefixedKey: string;
+};
+
+export type McpScanServerResult = {
+  id: string;
+  name: string;
+  tools: McpScannedToolInfo[];
+};
+
+export async function scanInstanceMcpTools(
+  instanceId: string,
+  serverIds: string[]
+): Promise<{ servers: McpScanServerResult[] }> {
+  const response = await fetch(`${API_BASE_URL}/instances/${instanceId}/mcp-tools/scan`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeadersAsObject()
+    },
+    body: JSON.stringify({ serverIds })
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  return response.json() as Promise<{ servers: McpScanServerResult[] }>;
 }
 
 export type OpenAiSettings = {

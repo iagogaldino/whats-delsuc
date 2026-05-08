@@ -21,6 +21,11 @@ type UpdateWhatsAppTokenInput = {
   waApiToken: string;
 };
 
+type UpdateWhatsAppSessionInput = {
+  userId: string;
+  waSessionJwt: string;
+};
+
 export type UserMcpServer = {
   id: string;
   name: string;
@@ -107,6 +112,24 @@ export class UserRepository {
           $set: {
         waTokenId: input.waTokenId,
             waApiToken: input.waApiToken,
+            updatedAt: new Date()
+          }
+        }
+      );
+  }
+
+  async updateWhatsAppSession(input: UpdateWhatsAppSessionInput): Promise<void> {
+    if (!ObjectId.isValid(input.userId)) {
+      throw new Error("Invalid user id");
+    }
+
+    await getMongoDb()
+      .collection("users")
+      .updateOne(
+        { _id: new ObjectId(input.userId) },
+        {
+          $set: {
+            waSessionJwt: input.waSessionJwt,
             updatedAt: new Date()
           }
         }

@@ -55,6 +55,24 @@ type WebhookConfigResult = {
   secretLast4: string | null;
 };
 
+export type ConversationMessageItem = {
+  id: string;
+  jid: string;
+  fromMe: boolean;
+  timestamp: string;
+  text: string;
+  type: string;
+  mediaUrl?: string;
+  mediaMimeType?: string;
+  mediaFileName?: string;
+  mediaSize?: number;
+};
+
+type ConversationMessagesPage = {
+  items: ConversationMessageItem[];
+  nextCursor?: string;
+};
+
 export class WhatsappService {
   private buildSendTextAttempts(input: SendTextInput): SendTextAttempt[] {
     return [
@@ -116,6 +134,56 @@ export class WhatsappService {
     return {
       "Content-Type": "application/json",
       ...this.buildAuthHeaders(token)
+    };
+  }
+
+  async getConversationMessages(input: {
+    instanceId: string;
+    token: string;
+    jidOrNumber: string;
+    limit?: number;
+    beforeMessageId?: string;
+  }): Promise<ConversationMessagesPage> {
+    const normalizedLimit = Math.min(100, Math.max(1, input.limit ?? 20));
+    const query = new URLSearchParams({ limit: String(normalizedLimit) });
+    if (input.beforeMessageId && input.beforeMessageId.trim().length > 0) {
+      query.set("beforeMessageId", input.beforeMessageId.trim());
+    }
+
+    const url = `${env.WHATSAPP_CONNECT_BASE_URL}/api/v1/instances/${encodeURIComponent(
+      input.instanceId
+    )}/whatsapp/conversations/${encodeURIComponent(input.jidOrNumber)}/messages?${query.toString()}`;
+    const response = await fetch(url, {
+      method: "GET",
+      headers: this.buildAuthHeaders(input.token)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`WhatsApp conversation messages fetch failed (${response.status}): ${errorText}`);
+    }
+
+    const payload = (await response.json()) as {
+      items?: Array<Record<string, unknown>>;
+      nextCursor?: unknown;
+    };
+
+    const items = (payload.items ?? []).map((item) => ({
+      id: String(item.id ?? ""),
+      jid: String(item.jid ?? ""),
+      fromMe: Boolean(item.fromMe),
+      timestamp: String(item.timestamp ?? ""),
+      text: String(item.text ?? ""),
+      type: String(item.type ?? ""),
+      mediaUrl: typeof item.mediaUrl === "string" ? item.mediaUrl : undefined,
+      mediaMimeType: typeof item.mediaMimeType === "string" ? item.mediaMimeType : undefined,
+      mediaFileName: typeof item.mediaFileName === "string" ? item.mediaFileName : undefined,
+      mediaSize: typeof item.mediaSize === "number" ? item.mediaSize : undefined
+    }));
+
+    return {
+      items,
+      nextCursor: typeof payload.nextCursor === "string" ? payload.nextCursor : undefined
     };
   }
 
@@ -237,6 +305,36 @@ export class WhatsappService {
       typeof nameField === "string" && nameField.length > 0 ? nameField : undefined;
 
     return { instanceId, name };
+  }
+
+  async deleteInstanceV1(instanceId: string, sessionJwt: string): Promise<void> {
+    const attempts = [
+      `/api/v1/instances/${encodeURIComponent(instanceId)}`,
+      `/api/v1/auth/instances/${encodeURIComponent(instanceId)}`
+    ];
+    const errors: string[] = [];
+
+    for (const path of attempts) {
+      const response = await fetch(`${env.WHATSAPP_CONNECT_BASE_URL}${path}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${sessionJwt}`
+        }
+      });
+
+      if (response.ok || response.status === 404) {
+        return;
+      }
+
+      const errorText = await response.text();
+      errors.push(`${path} -> (${response.status}) ${errorText}`);
+
+      if (response.status !== 405) {
+        throw new Error(`WhatsApp Connect delete instance failed (${response.status}): ${errorText}`);
+      }
+    }
+
+    throw new Error(`WhatsApp Connect delete instance failed across known endpoints: ${errors.join(" | ")}`);
   }
 
   async startWhatsAppPairingV1(instanceId: string, token: string): Promise<void> {

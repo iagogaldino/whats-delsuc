@@ -2,7 +2,9 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { InstanceRepository } from "../repositories/instance.repository.js";
 import type { WhatsappInstanceModel } from "../repositories/instance.repository.js";
+import type { UserMcpServer } from "../repositories/user.repository.js";
 import { UserRepository } from "../repositories/user.repository.js";
+import { MCP_TOOL_NAME_SEPARATOR, McpClientService } from "../services/mcp-client.service.js";
 import { WhatsappService } from "../services/whatsapp.service.js";
 import { env } from "../lib/env.js";
 
@@ -20,6 +22,7 @@ const updateAutoReplySchema = z
     systemPrompt: z.string().trim().optional(),
     aiMcpEnabled: z.boolean().optional(),
     aiMcpAllowedServerIds: z.array(z.string().trim().min(1)).optional(),
+    aiMcpAllowedToolKeys: z.array(z.string().trim().min(1)).optional(),
     aiMcpMaxSteps: z.coerce.number().int().min(1).max(10).optional()
   })
   .superRefine((data, ctx) => {
@@ -46,6 +49,28 @@ const updateAutoReplySchema = z
 const instanceRepository = new InstanceRepository();
 const userRepository = new UserRepository();
 const whatsappService = new WhatsappService();
+const mcpClientService = new McpClientService();
+
+function sanitizeAiMcpAllowedToolKeys(
+  keys: string[],
+  allowedServerIds: string[],
+  catalog: UserMcpServer[]
+): string[] {
+  const allowedServers = new Set(allowedServerIds);
+  const catalogIds = new Set(catalog.map((entry) => entry.id));
+  return keys.filter((key) => {
+    const sep = key.indexOf(MCP_TOOL_NAME_SEPARATOR);
+    if (sep <= 0) {
+      return false;
+    }
+    const serverId = key.slice(0, sep);
+    return allowedServers.has(serverId) && catalogIds.has(serverId);
+  });
+}
+
+const scanMcpToolsBodySchema = z.object({
+  serverIds: z.array(z.string().trim().min(1)).min(1)
+});
 
 function getConfiguredWebhookUrl(): string {
   if (env.INSTANCE_WEBHOOK_URL) {
@@ -82,6 +107,7 @@ function toPublicInstance(inst: WhatsappInstanceModel) {
     systemPrompt: inst.systemPrompt,
     aiMcpEnabled: inst.aiMcpEnabled,
     aiMcpAllowedServerIds: inst.aiMcpAllowedServerIds,
+    aiMcpAllowedToolKeys: inst.aiMcpAllowedToolKeys,
     aiMcpMaxSteps: inst.aiMcpMaxSteps,
     createdAt: inst.createdAt.toISOString(),
     updatedAt: inst.updatedAt.toISOString()
@@ -254,6 +280,71 @@ export async function startInstanceController(
   return reply.status(200).send({ instanceId: instance.instanceId, qrCode });
 }
 
+export async function deleteInstanceController(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  if (!request.authUser) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+
+  const paramsSchema = z.object({ instanceId: z.string().min(1) });
+  const parsedParams = paramsSchema.safeParse(request.params);
+  if (!parsedParams.success) {
+    return reply.status(400).send({ error: "Invalid params" });
+  }
+
+  const { instanceId } = parsedParams.data;
+  const instance = await instanceRepository.findByInstanceId(instanceId, request.authUser.userId);
+  if (!instance) {
+    return reply.status(404).send({ error: "Instance not found" });
+  }
+
+  const user = await userRepository.findById(request.authUser.userId);
+  if (!user?.waSessionJwt) {
+    return reply.status(400).send({ error: "No WhatsApp session JWT available for this user" });
+  }
+
+  let sessionJwt = user.waSessionJwt;
+  try {
+    await whatsappService.deleteInstanceV1(instance.instanceId, sessionJwt);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erro ao remover instancia no WhatsApp Connect.";
+    const shouldRefreshSession =
+      message.includes("delete instance failed (401)") ||
+      message.toLowerCase().includes("token invalido") ||
+      message.toLowerCase().includes("token inválido") ||
+      message.toLowerCase().includes("expirado");
+
+    if (!shouldRefreshSession) {
+      return reply.status(502).send({ error: message });
+    }
+
+    try {
+      sessionJwt = await whatsappService.getSessionJwt({
+        email: env.WHATSAPP_CONNECT_EMAIL,
+        password: env.WHATSAPP_CONNECT_PASSWORD
+      });
+      await userRepository.updateWhatsAppSession({
+        userId: request.authUser.userId,
+        waSessionJwt: sessionJwt
+      });
+      await whatsappService.deleteInstanceV1(instance.instanceId, sessionJwt);
+    } catch (refreshError) {
+      const refreshMessage =
+        refreshError instanceof Error ? refreshError.message : "Erro ao renovar sessao do WhatsApp Connect.";
+      return reply.status(502).send({ error: refreshMessage });
+    }
+  }
+
+  const deleted = await instanceRepository.deleteByInstanceId(instance.instanceId, request.authUser.userId);
+  if (!deleted) {
+    return reply.status(404).send({ error: "Instance not found" });
+  }
+
+  return reply.status(204).send();
+}
+
 export async function updateInstanceAutoReplyController(
   request: FastifyRequest,
   reply: FastifyReply
@@ -294,17 +385,21 @@ export async function updateInstanceAutoReplyController(
   const systemPrompt = (parsedBody.data.systemPrompt ?? instance.systemPrompt).trim();
   const aiMcpEnabled = parsedBody.data.aiMcpEnabled ?? instance.aiMcpEnabled;
   const aiMcpAllowedServerIds = parsedBody.data.aiMcpAllowedServerIds ?? instance.aiMcpAllowedServerIds;
+  const catalog = user.mcpServers;
+  const aiMcpAllowedToolKeys =
+    parsedBody.data.aiMcpAllowedToolKeys !== undefined
+      ? sanitizeAiMcpAllowedToolKeys(parsedBody.data.aiMcpAllowedToolKeys, aiMcpAllowedServerIds, catalog)
+      : instance.aiMcpAllowedToolKeys;
   const aiMcpMaxSteps = Math.min(
     10,
     Math.max(1, parsedBody.data.aiMcpMaxSteps ?? instance.aiMcpMaxSteps)
   );
 
   if (parsedBody.data.autoReplyMode === "ai" && aiMcpEnabled) {
-    const catalog = user.mcpServers;
     if (catalog.length === 0) {
-      return reply
-        .status(400)
-        .send({ error: "MCP não está configurado no servidor (defina MCP_SERVERS_JSON)." });
+      return reply.status(400).send({
+        error: "Nenhum servidor MCP configurado. Adicione servidores em Configurações (IA) na conta."
+      });
     }
     if (aiMcpAllowedServerIds.length === 0) {
       return reply.status(400).send({ error: "Selecione ao menos um servidor MCP permitido." });
@@ -344,6 +439,7 @@ export async function updateInstanceAutoReplyController(
     systemPrompt,
     aiMcpEnabled,
     aiMcpAllowedServerIds,
+    aiMcpAllowedToolKeys,
     aiMcpMaxSteps
   });
 
@@ -352,4 +448,59 @@ export async function updateInstanceAutoReplyController(
   }
 
   return reply.status(200).send(toPublicInstance(updated));
+}
+
+export async function scanInstanceMcpToolsController(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  if (!request.authUser) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+
+  const paramsSchema = z.object({ instanceId: z.string().min(1) });
+  const parsedParams = paramsSchema.safeParse(request.params);
+  if (!parsedParams.success) {
+    return reply.status(400).send({ error: "Invalid params" });
+  }
+
+  const parsedBody = scanMcpToolsBodySchema.safeParse(
+    request.body && typeof request.body === "object" ? request.body : {}
+  );
+  if (!parsedBody.success) {
+    return reply.status(400).send({ error: "Invalid payload", details: parsedBody.error.flatten() });
+  }
+
+  const instance = await instanceRepository.findByInstanceId(
+    parsedParams.data.instanceId,
+    request.authUser.userId
+  );
+  if (!instance) {
+    return reply.status(404).send({ error: "Instance not found" });
+  }
+
+  const user = await userRepository.findById(request.authUser.userId);
+  const catalog = user?.mcpServers ?? [];
+  if (catalog.length === 0) {
+    return reply.status(400).send({
+      error: "Nenhum servidor MCP configurado. Adicione servidores em Configurações (IA) na conta."
+    });
+  }
+
+  const knownIds = new Set(catalog.map((entry) => entry.id));
+  const unknown = parsedBody.data.serverIds.filter((id) => !knownIds.has(id));
+  if (unknown.length > 0) {
+    return reply.status(400).send({
+      error: `Servidor(es) MCP desconhecido(s): ${unknown.join(", ")}`
+    });
+  }
+
+  try {
+    const servers = await mcpClientService.listToolsForServers(parsedBody.data.serverIds, catalog);
+    return reply.status(200).send({ servers });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Falha ao listar ferramentas MCP.";
+    return reply.status(502).send({ error: message });
+  }
 }

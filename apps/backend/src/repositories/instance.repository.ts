@@ -21,6 +21,7 @@ type UpdateAutoReplyInput = {
   systemPrompt: string;
   aiMcpEnabled: boolean;
   aiMcpAllowedServerIds: string[];
+  aiMcpAllowedToolKeys: string[];
   aiMcpMaxSteps: number;
 };
 
@@ -79,6 +80,7 @@ export class InstanceRepository {
           autoReplyAllowedNumbers: [],
           aiMcpEnabled: false,
           aiMcpAllowedServerIds: [],
+          aiMcpAllowedToolKeys: [],
           aiMcpMaxSteps: 4,
           createdAt: now
         }
@@ -114,6 +116,7 @@ export class InstanceRepository {
             systemPrompt: input.systemPrompt,
             aiMcpEnabled: input.aiMcpEnabled,
             aiMcpAllowedServerIds: input.aiMcpAllowedServerIds,
+            aiMcpAllowedToolKeys: input.aiMcpAllowedToolKeys,
             aiMcpMaxSteps: input.aiMcpMaxSteps,
             updatedAt: new Date()
           }
@@ -122,6 +125,14 @@ export class InstanceRepository {
       );
 
     return result ? mapInstanceDocument(result) : null;
+  }
+
+  async deleteByInstanceId(instanceId: string, userId: string): Promise<boolean> {
+    const result = await getMongoDb()
+      .collection<WhatsappInstanceDocument>("whatsapp_instances")
+      .deleteOne({ instanceId, userId });
+
+    return result.deletedCount > 0;
   }
 }
 
@@ -138,6 +149,7 @@ type WhatsappInstanceDocument = {
   autoReplyAllowedNumbers?: string[];
   aiMcpEnabled?: boolean;
   aiMcpAllowedServerIds?: string[];
+  aiMcpAllowedToolKeys?: string[];
   aiMcpMaxSteps?: number;
   displayName?: string;
   status: "CONNECTED" | "DISCONNECTED";
@@ -158,6 +170,7 @@ export type WhatsappInstanceModel = {
   autoReplyAllowedNumbers: string[];
   aiMcpEnabled: boolean;
   aiMcpAllowedServerIds: string[];
+  aiMcpAllowedToolKeys: string[];
   aiMcpMaxSteps: number;
   displayName?: string;
   status: "CONNECTED" | "DISCONNECTED";
@@ -179,6 +192,7 @@ function mapInstanceDocument(document: WhatsappInstanceDocument): WhatsappInstan
     autoReplyAllowedNumbers: document.autoReplyAllowedNumbers ?? [],
     aiMcpEnabled: document.aiMcpEnabled ?? false,
     aiMcpAllowedServerIds: document.aiMcpAllowedServerIds ?? [],
+    aiMcpAllowedToolKeys: document.aiMcpAllowedToolKeys ?? [],
     aiMcpMaxSteps: document.aiMcpMaxSteps ?? 4,
     displayName: document.displayName,
     status: document.status,

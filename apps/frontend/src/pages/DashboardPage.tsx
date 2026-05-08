@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { SectionCard } from "../components/SectionCard";
-import { createInstance, listInstances, startInstance } from "../services/api";
+import { createInstance, deleteInstance, listInstances, startInstance } from "../services/api";
 import type { PublicInstance } from "../services/api";
 
 const QR_REFRESH_SECONDS = 25;
@@ -37,10 +37,12 @@ export function DashboardPage({ onOpenInstance }: DashboardPageProps) {
   const [listError, setListError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [createMessage, setCreateMessage] = useState<string | null>(null);
+  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [qrByInstanceId, setQrByInstanceId] = useState<Record<string, string>>({});
   const [qrCountdownByInstanceId, setQrCountdownByInstanceId] = useState<Record<string, number>>({});
   const [pairingMessages, setPairingMessages] = useState<Record<string, string | null>>({});
   const [connectingInstanceId, setConnectingInstanceId] = useState<string | null>(null);
+  const [deletingInstanceId, setDeletingInstanceId] = useState<string | null>(null);
   const [autoRefreshingInstanceId, setAutoRefreshingInstanceId] = useState<string | null>(null);
   const [activeQrInstanceId, setActiveQrInstanceId] = useState<string | null>(null);
 
@@ -223,6 +225,7 @@ export function DashboardPage({ onOpenInstance }: DashboardPageProps) {
         </button>
 
         {createMessage ? <p className="text-sm text-slate-300">{createMessage}</p> : null}
+        {deleteMessage ? <p className="text-sm text-slate-300">{deleteMessage}</p> : null}
 
         {listLoading ? (
           <p className="text-sm text-slate-400">Carregando instancias...</p>
@@ -268,16 +271,70 @@ export function DashboardPage({ onOpenInstance }: DashboardPageProps) {
                     {instance.status}
                   </p>
                 </div>
-                {instance.status !== "CONNECTED" ? (
+                <div className="mt-3 flex shrink-0 gap-2 sm:mt-0">
+                  {instance.status !== "CONNECTED" ? (
+                    <button
+                      type="button"
+                      className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-400 disabled:opacity-50"
+                      disabled={connectingInstanceId === instance.instanceId || deletingInstanceId === instance.instanceId}
+                      onClick={() => void refreshQrForInstance(instance.instanceId, "manual")}
+                    >
+                      {connectingInstanceId === instance.instanceId ? "Gerando QR..." : "Conectar com o WhatsApp"}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
-                    className="mt-3 shrink-0 rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-400 disabled:opacity-50 sm:mt-0"
-                    disabled={connectingInstanceId === instance.instanceId}
-                    onClick={() => void refreshQrForInstance(instance.instanceId, "manual")}
+                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
+                    disabled={deletingInstanceId === instance.instanceId || connectingInstanceId === instance.instanceId}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (
+                        !window.confirm(
+                          `Tem certeza que deseja remover a instancia "${instance.displayName || instance.instanceId}"?`
+                        )
+                      ) {
+                        return;
+                      }
+                      setDeleteMessage(null);
+                      setDeletingInstanceId(instance.instanceId);
+                      void deleteInstance(instance.instanceId)
+                        .then(() => {
+                          setInstances((previous) =>
+                            previous.filter((item) => item.instanceId !== instance.instanceId)
+                          );
+                          setQrByInstanceId((previous) => {
+                            const next = { ...previous };
+                            delete next[instance.instanceId];
+                            return next;
+                          });
+                          setQrCountdownByInstanceId((previous) => {
+                            const next = { ...previous };
+                            delete next[instance.instanceId];
+                            return next;
+                          });
+                          setPairingMessages((previous) => {
+                            const next = { ...previous };
+                            delete next[instance.instanceId];
+                            return next;
+                          });
+                          setActiveQrInstanceId((current) =>
+                            current === instance.instanceId ? null : current
+                          );
+                          setDeleteMessage("Instancia removida com sucesso.");
+                        })
+                        .catch((error: unknown) => {
+                          setDeleteMessage(
+                            error instanceof Error ? error.message : "Erro ao remover instancia."
+                          );
+                        })
+                        .finally(() => {
+                          setDeletingInstanceId(null);
+                        });
+                    }}
                   >
-                    {connectingInstanceId === instance.instanceId ? "Gerando QR..." : "Conectar com o WhatsApp"}
+                    {deletingInstanceId === instance.instanceId ? "Removendo..." : "Remover instancia"}
                   </button>
-                ) : null}
+                </div>
               </div>
 
               {pairingMessages[instance.instanceId] ? (
